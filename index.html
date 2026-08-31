@@ -840,8 +840,12 @@ function computeMatches() {
   return { results, unmatchedProducts };
 }
 
+// The 토트 barcode value is always the first line, written bare (no
+// "토트:" label) per the user's request — it's already unambiguous by
+// position, and repeating the label got noisy once the Overage block
+// started duplicating it right below.
 function buildBlockText(r) {
-  return `토트: ${r.tote}\n보내는센터: ${r.center}\n스큐: ${r.sku}\n품명: ${r.name}`;
+  return `${r.tote}\n보내는센터: ${r.center}\n스큐: ${r.sku}\n품명: ${r.name}`;
 }
 
 // When the user hand-corrects a wrong 토트 value (e.g. OCR misread T as 1)
@@ -851,7 +855,7 @@ function buildBlockText(r) {
 // `ta` belongs to a matched result card (its listRows entry) or an
 // unmatched-product card (its products entry).
 function handleToteEdit(ta, kind) {
-  const newTote = extractField(ta.value, '토트').trim();
+  const newTote = firstLine(ta.value);
   if (!newTote) return;
   if (kind === 'row') {
     const row = listRows.find(r => String(r.id) === ta.dataset.rowId);
@@ -878,11 +882,29 @@ function extractField(text, label) {
   return m ? m[1].trim() : '';
 }
 
+// The 토트 barcode value has no "토트:" label anymore (see buildBlockText) —
+// it's just whatever is on the first line of the box.
+function firstLine(text) {
+  return ((text || '').split('\n')[0] || '').trim();
+}
+
 // Builds the 복사 / 토트바코드 / 스큐바코드 button row shared by every
 // result card. Reads `ta.value` at click time so edits are respected.
 // Pass `onDelete` to also append a 삭제 button (used for the "매칭되지
 // 않은 상품정보" cards, where a leftover/failed recognition can just be
 // removed instead of being left cluttering the list).
+// What actually gets copied strips the "라벨:" prefix from every line
+// except Overage — the tote line already has no label, and everything
+// else (보내는센터/스큐/품명/Shortage) is copied as its bare value only.
+// Overage is the one exception: its label and value stay together.
+function buildCopyText(rawValue) {
+  return rawValue.split('\n').map((line) => {
+    if (/^Overage:/.test(line)) return line;
+    const m = line.match(/^(보내는센터|스큐|품명|Shortage):\s*(.*)$/);
+    return m ? m[2] : line;
+  }).join('\n');
+}
+
 function buildActionRow(ta, onDelete) {
   const row = document.createElement('div');
   row.className = 'action-row';
@@ -890,12 +912,12 @@ function buildActionRow(ta, onDelete) {
   const copyBtn = document.createElement('button');
   copyBtn.className = 'copy-btn';
   copyBtn.textContent = '복사';
-  copyBtn.addEventListener('click', () => copyText(ta.value));
+  copyBtn.addEventListener('click', () => copyText(buildCopyText(ta.value)));
 
   const toteBtn = document.createElement('button');
   toteBtn.className = 'barcode-btn';
   toteBtn.textContent = '토트바코드';
-  toteBtn.addEventListener('click', () => openBarcodeModal('토트바코드', extractField(ta.value, '토트')));
+  toteBtn.addEventListener('click', () => openBarcodeModal('토트바코드', firstLine(ta.value)));
 
   const skuBtn = document.createElement('button');
   skuBtn.className = 'barcode-btn';
@@ -917,38 +939,43 @@ function buildActionRow(ta, onDelete) {
   return row;
 }
 
-// Shortage adds one line; Overage adds a whole extra 4-line block (same
-// 토트/보내는센터 as the card, blank 스큐, then the Overage line) below the
-// original product info. Either button first strips whatever quick-tag
-// content it previously added — detected structurally, not just any line
-// with those labels — so tapping again or switching between the two never
-// leaves stray duplicate lines behind, and re-tapping Overage always uses
-// the CURRENT 토트/보내는센터 shown in the box (including hand edits).
+// Shortage (alone) adds one line to the original product info. Overage
+// means "an extra item was found here" — which by definition also means
+// the originally-expected item is short — so Overage adds a Shortage line
+// to the ORIGINAL block too (right after 품명, no blank line — same as how
+// Overage sits as the last line of its own block below), then a blank
+// separator, then a second 4-line block (same 토트/보내는센터, blank 스큐,
+// then Overage) reporting the extra item. Either button first strips
+// whatever quick-tag content it previously added — detected structurally,
+// not just any line with those labels — so tapping again or switching
+// between the two never leaves stray duplicate lines behind, and
+// re-tapping Overage always uses the CURRENT 토트/보내는센터 shown in the
+// box (including hand edits).
 const SHORTAGE_LINE = 'Shortage: PRB0-1-10 이동';
 const OVERAGE_LINE = 'Overage: ICQA인계';
 
-// A blank line always separates the original product info from an added
-// Shortage/Overage tag, so the two are visually distinct — accounted for
-// on both sides: added when inserting, and stripped (along with the tag
-// itself) when re-detecting the base text.
 function stripQuickTagBlock(text) {
   const lines = text.split('\n');
   const last = lines[lines.length - 1] || '';
-  // Overage block: blank line, then 토트 / 보내는센터 / 스큐(blank) / Overage.
-  if (lines.length >= 5 &&
+  const n = lines.length;
+
+  // Overage combo: ...base, Shortage line (no blank before it), blank
+  // line, 토트(bare) / 보내는센터 / 스큐(blank) / Overage. Checked before
+  // the plain-Shortage pattern below since it's the more specific match.
+  if (n >= 6 &&
       new RegExp('^' + OVERAGE_LINE + '\\s*$').test(last) &&
-      /^스큐:\s*$/.test(lines[lines.length - 2]) &&
-      /^보내는센터:/.test(lines[lines.length - 3]) &&
-      /^토트:/.test(lines[lines.length - 4]) &&
-      lines[lines.length - 5] === '') {
-    return lines.slice(0, lines.length - 5).join('\n');
+      /^스큐:\s*$/.test(lines[n - 2]) &&
+      /^보내는센터:/.test(lines[n - 3]) &&
+      lines[n - 5] === '' &&
+      new RegExp('^' + SHORTAGE_LINE + '\\s*$').test(lines[n - 6])) {
+    return lines.slice(0, n - 6).join('\n');
   }
-  // Shortage: blank line, then its one line (also covers stripping a lone
-  // legacy single-line Overage tag, harmless either way).
-  if (lines.length >= 2 && lines[lines.length - 2] === '' &&
+  // Plain Shortage: blank line, then its one line (also covers stripping a
+  // lone legacy single-line Overage tag, harmless either way).
+  if (n >= 2 && lines[n - 2] === '' &&
       (new RegExp('^' + SHORTAGE_LINE + '\\s*$').test(last) ||
        new RegExp('^' + OVERAGE_LINE + '\\s*$').test(last))) {
-    return lines.slice(0, lines.length - 2).join('\n');
+    return lines.slice(0, n - 2).join('\n');
   }
   return text;
 }
@@ -958,9 +985,9 @@ function insertQuickTag(ta, key) {
   if (key === 'shortage') {
     ta.value = base + '\n\n' + SHORTAGE_LINE;
   } else if (key === 'overage') {
-    const tote = extractField(base, '토트');
+    const tote = firstLine(base);
     const center = extractField(base, '보내는센터');
-    ta.value = base + '\n\n' + `토트: ${tote}\n보내는센터: ${center}\n스큐:\n${OVERAGE_LINE}`;
+    ta.value = base + '\n' + SHORTAGE_LINE + '\n\n' + `${tote}\n보내는센터: ${center}\n스큐:\n${OVERAGE_LINE}`;
   }
   autosizeTa(ta);
 }
@@ -1041,7 +1068,7 @@ function renderResults() {
     warnDiv.appendChild(label);
 
     unmatchedProducts.forEach(p => {
-      const text = `토트: ${p.tote}\n스큐: ${p.sku}\n품명: ${p.name}`;
+      const text = `${p.tote}\n스큐: ${p.sku}\n품명: ${p.name}`;
 
       const ta = document.createElement('textarea');
       ta.className = 'result-text';
@@ -1124,7 +1151,7 @@ function copyAll() {
     showToast('복사할 내용이 없습니다');
     return;
   }
-  const fullText = Array.from(areas).map(a => a.value).join('\n\n');
+  const fullText = Array.from(areas).map(a => buildCopyText(a.value)).join('\n\n');
   copyText(fullText);
 }
 

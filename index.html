@@ -273,6 +273,33 @@
     flex: 0 0 auto;
     min-width: 52px;
   }
+  .result-card .tag-row {
+    display: flex;
+    gap: 6px;
+    margin-top: -2px;
+    margin-bottom: 10px;
+  }
+  .result-card .tag-row:last-child {
+    margin-bottom: 0;
+  }
+  .result-card .tag-row button {
+    flex: 1;
+    min-width: 84px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: white;
+  }
+  .result-card .shortage-btn {
+    color: var(--warn);
+    border: 1px solid var(--warn);
+  }
+  .result-card .overage-btn {
+    color: var(--ok);
+    border: 1px solid var(--ok);
+  }
   .result-top-actions {
     display: flex;
     gap: 8px;
@@ -888,6 +915,41 @@ function buildActionRow(ta, onDelete) {
   return row;
 }
 
+// Inserts (or replaces) a single "Shortage: ..." / "Overage: ..." line at
+// the end of the result text. Only one of the two ever applies to a given
+// tote, so tapping either button first removes any existing Shortage/
+// Overage line before adding the new one — safe to tap more than once or
+// to switch from one to the other.
+const QUICK_TAGS = {
+  shortage: 'Shortage: PRB0-1-10 이동',
+  overage: 'Overage: ICQA인계'
+};
+function insertQuickTag(ta, key) {
+  const cleaned = ta.value.replace(/\n?^(Shortage|Overage):.*$/gm, '').replace(/\n+$/,'');
+  ta.value = cleaned + '\n' + QUICK_TAGS[key];
+}
+
+// Builds the Shortage / Overage quick-tag row shown under the main action
+// row on matched result cards.
+function buildTagRow(ta) {
+  const row = document.createElement('div');
+  row.className = 'tag-row';
+
+  const shortageBtn = document.createElement('button');
+  shortageBtn.className = 'shortage-btn';
+  shortageBtn.textContent = 'Shortage';
+  shortageBtn.addEventListener('click', () => insertQuickTag(ta, 'shortage'));
+
+  const overageBtn = document.createElement('button');
+  overageBtn.className = 'overage-btn';
+  overageBtn.textContent = 'Overage';
+  overageBtn.addEventListener('click', () => insertQuickTag(ta, 'overage'));
+
+  row.appendChild(shortageBtn);
+  row.appendChild(overageBtn);
+  return row;
+}
+
 function renderResults() {
   const wrap = document.getElementById('resultsWrap');
   wrap.innerHTML = '';
@@ -917,6 +979,7 @@ function renderResults() {
 
     div.appendChild(ta);
     div.appendChild(buildActionRow(ta));
+    div.appendChild(buildTagRow(ta));
     wrap.appendChild(div);
   });
 

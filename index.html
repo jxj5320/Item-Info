@@ -384,7 +384,6 @@
     <input type="file" id="listInput" accept="image/*" class="file-input-hidden">
     <p class="file-name" id="listFileName"></p>
     <div class="thumbs" id="listThumbs"></div>
-    <button class="btn-primary" id="listBtn" onclick="recognizeList()" disabled>리스트 인식하기</button>
     <div class="status-line" id="listStatus"></div>
   </div>
 
@@ -395,7 +394,6 @@
     <input type="file" id="productInput" accept="image/*" multiple class="file-input-hidden">
     <p class="file-name" id="productFileName"></p>
     <div class="thumbs" id="productThumbs"></div>
-    <button class="btn-primary" id="productBtn" onclick="recognizeProducts()" disabled>상품정보 인식하기</button>
     <div class="status-line" id="productStatus"></div>
   </div>
 
@@ -437,10 +435,7 @@
       <canvas id="barcodeCanvas"></canvas>
     </div>
     <p class="modal-note" id="barcodeValueNote" style="text-align:center;word-break:break-all;"></p>
-    <div class="modal-buttons">
-      <button class="cancel" onclick="closeBarcodeModal()">닫기</button>
-      <button class="save" onclick="saveBarcodeImage()">사진 앱에 저장</button>
-    </div>
+    <p class="modal-note" style="text-align:center;">바코드 바깥 아무 곳이나 누르면 닫혀요</p>
   </div>
 </div>
 
@@ -546,10 +541,10 @@ function renderProductThumbs() {
   });
 }
 
-function updateButtonStates() {
-  document.getElementById('listBtn').disabled = !(apiKey && listFile);
-  document.getElementById('productBtn').disabled = !(apiKey && productFiles.length > 0);
-}
+// No-op now that the manual "리스트/상품정보 인식하기" buttons are gone
+// (selecting a photo auto-recognizes it) — left in place as a harmless
+// no-op so existing call sites don't need to be hunted down individually.
+function updateButtonStates() {}
 
 // ---------- image resize + base64 ----------
 function fileToResizedBase64(file, maxDim = 1100, quality = 0.85) {
@@ -670,9 +665,7 @@ function parseProductResponse(text) {
 // ---------- recognize list ----------
 async function recognizeList() {
   if (!listFile || !apiKey) return;
-  const btn = document.getElementById('listBtn');
   const status = document.getElementById('listStatus');
-  btn.disabled = true;
   status.className = 'status-line';
   status.innerHTML = '<span class="spinner"></span>리스트 인식 중...';
   try {
@@ -699,9 +692,7 @@ async function recognizeList() {
 // ---------- recognize products (loop, isolate failures) ----------
 async function recognizeProducts() {
   if (productFiles.length === 0 || !apiKey) return;
-  const btn = document.getElementById('productBtn');
   const status = document.getElementById('productStatus');
-  btn.disabled = true;
   let okCount = 0, failCount = 0;
 
   for (let i = 0; i < productFiles.length; i++) {
@@ -894,72 +885,20 @@ function openBarcodeModal(label, value) {
     return;
   }
   document.getElementById('barcodeOverlay').classList.add('show');
-
-  // Fire the save/share flow immediately in the same tap that opened this
-  // modal — on iPhone that means the native share sheet pops up right away,
-  // so saving only takes the one unavoidable "이미지 저장" tap in it instead
-  // of an extra tap on our own button first. Everything up to here has to
-  // stay synchronous (no await) or iOS revokes the share permission it
-  // grants for the duration of a user gesture. If this fails for any reason,
-  // the "사진 앱에 저장" button in the modal still works as a manual retry.
-  try {
-    shareOrDownloadFile(makeBarcodeFile());
-  } catch (err) {
-    // ignored — manual button below covers it
-  }
 }
 
 function closeBarcodeModal() {
   document.getElementById('barcodeOverlay').classList.remove('show');
 }
 
-// Synchronous data URL -> Blob conversion (no fetch()/toBlob() await) so the
-// browser still considers this call part of the same user gesture.
-function dataURLtoBlob(dataUrl) {
-  const [header, base64] = dataUrl.split(',');
-  const mimeMatch = header.match(/data:(.*?);base64/);
-  const mime = mimeMatch ? mimeMatch[1] : 'image/png';
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
-function makeBarcodeFile() {
-  const canvas = document.getElementById('barcodeCanvas');
-  const blob = dataURLtoBlob(canvas.toDataURL('image/png'));
-  const safeValue = (currentBarcodeValue || 'barcode').replace(/[^A-Za-z0-9-]/g, '_');
-  const fileName = (currentBarcodeLabel || 'barcode') + '_' + safeValue + '.png';
-  return new File([blob], fileName, { type: 'image/png' });
-}
-
-// Tries the native share sheet (which on iPhone offers "이미지 저장" straight
-// to the Photos app); a website can't skip that one confirmation tap —
-// Apple requires it so a page can't silently write to someone's photo
-// library — so this is the fewest taps we can get to. Falls back to a plain
-// download link on browsers without file sharing support.
-function shareOrDownloadFile(file) {
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file], title: currentBarcodeLabel }).catch(() => {});
-    return;
+// Tapping anywhere on the dimmed backdrop closes the modal; tapping inside
+// the card itself must not (the listener is on the overlay, and only fires
+// when the click target is the overlay itself, not something inside it).
+document.getElementById('barcodeOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'barcodeOverlay') {
+    closeBarcodeModal();
   }
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-function saveBarcodeImage() {
-  try {
-    shareOrDownloadFile(makeBarcodeFile());
-  } catch (err) {
-    showToast('저장에 실패했습니다');
-  }
-}
+});
 
 function copyAll() {
   // Read the live textarea values (not a fresh recompute) so any manual

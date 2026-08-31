@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tote-extractor-v1';
+const CACHE_NAME = 'tote-extractor-v2';
 const SHELL_FILES = [
   './index.html',
   './manifest.json',
@@ -33,16 +33,18 @@ self.addEventListener('fetch', (event) => {
   // Never cache/interfere with API calls even if they were GET.
   if (req.url.includes('api.anthropic.com')) return;
 
+  // Network-first (falling back to the cache only when offline) so that
+  // future edits to index.html/manifest/icons show up the next time the
+  // app is opened, instead of being stuck behind a stale cached copy —
+  // a cache-first strategy here previously meant home-screen shortcuts
+  // never picked up updates unless this file's own bytes changed too.
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((res) => {
-        if (res && res.status === 200 && req.url.startsWith(self.location.origin)) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
-        }
-        return res;
-      }).catch(() => cached);
-    })
+    fetch(req).then((res) => {
+      if (res && res.status === 200 && req.url.startsWith(self.location.origin)) {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+      }
+      return res;
+    }).catch(() => caches.match(req))
   );
 });

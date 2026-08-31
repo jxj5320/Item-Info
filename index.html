@@ -221,7 +221,9 @@
   .result-card .result-text {
     display: block;
     width: 100%;
+    box-sizing: border-box;
     resize: vertical;
+    overflow: hidden;
     white-space: pre-wrap;
     word-break: break-all;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
@@ -925,22 +927,28 @@ function buildActionRow(ta, onDelete) {
 const SHORTAGE_LINE = 'Shortage: PRB0-1-10 이동';
 const OVERAGE_LINE = 'Overage: ICQA인계';
 
+// A blank line always separates the original product info from an added
+// Shortage/Overage tag, so the two are visually distinct — accounted for
+// on both sides: added when inserting, and stripped (along with the tag
+// itself) when re-detecting the base text.
 function stripQuickTagBlock(text) {
   const lines = text.split('\n');
   const last = lines[lines.length - 1] || '';
-  // Overage block: last 4 lines are 토트 / 보내는센터 / 스큐(blank) / Overage.
-  if (lines.length >= 4 &&
+  // Overage block: blank line, then 토트 / 보내는센터 / 스큐(blank) / Overage.
+  if (lines.length >= 5 &&
       new RegExp('^' + OVERAGE_LINE + '\\s*$').test(last) &&
       /^스큐:\s*$/.test(lines[lines.length - 2]) &&
       /^보내는센터:/.test(lines[lines.length - 3]) &&
-      /^토트:/.test(lines[lines.length - 4])) {
-    return lines.slice(0, lines.length - 4).join('\n');
+      /^토트:/.test(lines[lines.length - 4]) &&
+      lines[lines.length - 5] === '') {
+    return lines.slice(0, lines.length - 5).join('\n');
   }
-  // Shortage is just its one line (also covers stripping a lone legacy
-  // single-line Overage tag, harmless either way).
-  if (new RegExp('^' + SHORTAGE_LINE + '\\s*$').test(last) ||
-      new RegExp('^' + OVERAGE_LINE + '\\s*$').test(last)) {
-    return lines.slice(0, lines.length - 1).join('\n');
+  // Shortage: blank line, then its one line (also covers stripping a lone
+  // legacy single-line Overage tag, harmless either way).
+  if (lines.length >= 2 && lines[lines.length - 2] === '' &&
+      (new RegExp('^' + SHORTAGE_LINE + '\\s*$').test(last) ||
+       new RegExp('^' + OVERAGE_LINE + '\\s*$').test(last))) {
+    return lines.slice(0, lines.length - 2).join('\n');
   }
   return text;
 }
@@ -948,12 +956,13 @@ function stripQuickTagBlock(text) {
 function insertQuickTag(ta, key) {
   const base = stripQuickTagBlock(ta.value);
   if (key === 'shortage') {
-    ta.value = base + '\n' + SHORTAGE_LINE;
+    ta.value = base + '\n\n' + SHORTAGE_LINE;
   } else if (key === 'overage') {
     const tote = extractField(base, '토트');
     const center = extractField(base, '보내는센터');
-    ta.value = base + '\n' + `토트: ${tote}\n보내는센터: ${center}\n스큐:\n${OVERAGE_LINE}`;
+    ta.value = base + '\n\n' + `토트: ${tote}\n보내는센터: ${center}\n스큐:\n${OVERAGE_LINE}`;
   }
+  autosizeTa(ta);
 }
 
 // Builds the Shortage / Overage quick-tag row shown under the main action
@@ -975,6 +984,15 @@ function buildTagRow(ta) {
   row.appendChild(shortageBtn);
   row.appendChild(overageBtn);
   return row;
+}
+
+// Grows a result textarea's height to fit all of its current text, so
+// longer content (e.g. after adding a Shortage/Overage block) is fully
+// visible without an inner scrollbar. Must be called after the textarea
+// is attached to the DOM (scrollHeight is 0 otherwise).
+function autosizeTa(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = (ta.scrollHeight + 2) + 'px';
 }
 
 function renderResults() {
@@ -1003,6 +1021,7 @@ function renderResults() {
     ta.spellcheck = false;
     ta.dataset.rowId = String(listRows[idx].id);
     ta.addEventListener('change', () => handleToteEdit(ta, 'row'));
+    ta.addEventListener('input', () => autosizeTa(ta));
 
     div.appendChild(ta);
     div.appendChild(buildActionRow(ta));
@@ -1032,6 +1051,7 @@ function renderResults() {
       ta.style.marginBottom = '6px';
       ta.dataset.productId = String(p.id);
       ta.addEventListener('change', () => handleToteEdit(ta, 'product'));
+      ta.addEventListener('input', () => autosizeTa(ta));
 
       warnDiv.appendChild(ta);
       warnDiv.appendChild(buildActionRow(ta, () => {
@@ -1043,6 +1063,10 @@ function renderResults() {
 
     wrap.appendChild(warnDiv);
   }
+
+  // Now that every textarea is attached to the DOM, size each one to fit
+  // its full content (no inner scrollbar hiding lines).
+  wrap.querySelectorAll('textarea').forEach(autosizeTa);
 }
 
 // ---------- barcode modal ----------

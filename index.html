@@ -893,14 +893,15 @@ function firstLine(text) {
 // Pass `onDelete` to also append a 삭제 button (used for the "매칭되지
 // 않은 상품정보" cards, where a leftover/failed recognition can just be
 // removed instead of being left cluttering the list).
-// What actually gets copied strips the "라벨:" prefix from every line
-// except Overage — the tote line already has no label, and everything
-// else (보내는센터/스큐/품명/Shortage) is copied as its bare value only.
-// Overage is the one exception: its label and value stay together.
+// What actually gets copied strips the "라벨:" prefix from 보내는센터/스큐/
+// 품명 (the tote line already has no label, so it's untouched either way),
+// but Shortage and Overage always keep their label with the value — on
+// their own a bare "PRB0-1-10 이동" or "ICQA인계" reads as meaningless
+// without knowing which case it is.
 function buildCopyText(rawValue) {
   return rawValue.split('\n').map((line) => {
-    if (/^Overage:/.test(line)) return line;
-    const m = line.match(/^(보내는센터|스큐|품명|Shortage):\s*(.*)$/);
+    if (/^(Shortage|Overage):/.test(line)) return line;
+    const m = line.match(/^(보내는센터|스큐|품명):\s*(.*)$/);
     return m ? m[2] : line;
   }).join('\n');
 }

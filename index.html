@@ -488,6 +488,22 @@ document.getElementById('listInput').addEventListener('change', (e) => {
   listFile = e.target.files[0] || null;
   document.getElementById('listFileName').textContent = listFile ? listFile.name : '';
   renderListThumb();
+
+  // A new list photo means a new batch of totes — clear everything from
+  // the previous batch (old rows, old matched products, old product photos)
+  // so no stale entries can linger in the section 3 results. Without this,
+  // re-loading the list only added to the old listRows/products arrays.
+  if (listFile) {
+    listRows = [];
+    products = [];
+    productFiles = [];
+    document.getElementById('productInput').value = '';
+    document.getElementById('productFileName').textContent = '';
+    document.getElementById('productStatus').textContent = '';
+    renderProductThumbs();
+    renderResults();
+  }
+
   updateButtonStates();
   // Recognize immediately on selection so there's no separate button tap —
   // the "리스트 인식하기" button stays as a manual retry if needed.

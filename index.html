@@ -266,6 +266,13 @@
     color: var(--blue);
     border: 1px solid var(--blue);
   }
+  .result-card .delete-btn {
+    background: white;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    flex: 0 0 auto;
+    min-width: 52px;
+  }
   .result-top-actions {
     display: flex;
     gap: 8px;
@@ -757,13 +764,20 @@ function normLoose(s) {
   return normStrict(s).replace(/[^A-Z0-9]/g, '');
 }
 
+// Two values are considered "the same code" for matching purposes if they're
+// equal once normalized, and neither is empty/"X" (a recognition placeholder
+// that must never be treated as a real matching value).
+function sameCode(a, b) {
+  const as = normStrict(a), al = normLoose(a);
+  const bs = normStrict(b), bl = normLoose(b);
+  if (!as || as === 'X' || !bs || bs === 'X') return false;
+  return as === bs || al === bl;
+}
+
 function computeMatches() {
   const usedProductIds = new Set();
   const results = listRows.map((row) => {
-    let match = products.find(p => !usedProductIds.has(p.id) && normStrict(p.tote) === normStrict(row.tote) && normStrict(row.tote) !== '');
-    if (!match) {
-      match = products.find(p => !usedProductIds.has(p.id) && normLoose(p.tote) === normLoose(row.tote) && normLoose(row.tote) !== '');
-    }
+    let match = products.find(p => !usedProductIds.has(p.id) && sameCode(p.tote, row.tote));
     if (match) usedProductIds.add(match.id);
     return {
       tote: row.tote,
@@ -773,6 +787,26 @@ function computeMatches() {
       matched: !!match
     };
   });
+
+  // Second pass: a product photo that failed the tote-to-tote match above
+  // might still be the exact same item as a row that DID match — just with
+  // one of its two barcode fields misread by OCR on that particular photo
+  // (duplicate scans of the same tote sometimes come out slightly
+  // different). So also fold it in — treat it as already accounted for,
+  // instead of leaving it stuck in "매칭되지 않은 상품정보" — whenever
+  // either its 토트 OR its 스큐 value matches either the 토트 OR the 스큐
+  // already shown on a matched section-3 result (any one of the four
+  // cross-combinations is enough).
+  results.forEach((r) => {
+    if (!r.matched) return;
+    const leftover = products.filter(p => !usedProductIds.has(p.id));
+    const extra = leftover.find(p =>
+      sameCode(p.tote, r.tote) || sameCode(p.sku, r.sku) ||
+      sameCode(p.tote, r.sku) || sameCode(p.sku, r.tote)
+    );
+    if (extra) usedProductIds.add(extra.id);
+  });
+
   const unmatchedProducts = products.filter(p => !usedProductIds.has(p.id));
   return { results, unmatchedProducts };
 }
@@ -817,7 +851,10 @@ function extractField(text, label) {
 
 // Builds the 복사 / 토트바코드 / 스큐바코드 button row shared by every
 // result card. Reads `ta.value` at click time so edits are respected.
-function buildActionRow(ta) {
+// Pass `onDelete` to also append a 삭제 button (used for the "매칭되지
+// 않은 상품정보" cards, where a leftover/failed recognition can just be
+// removed instead of being left cluttering the list).
+function buildActionRow(ta, onDelete) {
   const row = document.createElement('div');
   row.className = 'action-row';
 
@@ -839,6 +876,15 @@ function buildActionRow(ta) {
   row.appendChild(copyBtn);
   row.appendChild(toteBtn);
   row.appendChild(skuBtn);
+
+  if (onDelete) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'delete-btn';
+    delBtn.textContent = '삭제';
+    delBtn.addEventListener('click', onDelete);
+    row.appendChild(delBtn);
+  }
+
   return row;
 }
 
@@ -898,7 +944,11 @@ function renderResults() {
       ta.addEventListener('change', () => handleToteEdit(ta, 'product'));
 
       warnDiv.appendChild(ta);
-      warnDiv.appendChild(buildActionRow(ta));
+      warnDiv.appendChild(buildActionRow(ta, () => {
+        products = products.filter(pp => pp.id !== p.id);
+        renderResults();
+        showToast('삭제했어요');
+      }));
     });
 
     wrap.appendChild(warnDiv);

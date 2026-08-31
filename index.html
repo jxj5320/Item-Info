@@ -93,11 +93,46 @@
     margin: 0 0 12px 0;
     line-height: 1.5;
   }
-  input[type=file] {
-    display: block;
+  /* Native file inputs render as a small OS button that's hard to hit with
+     gloves on. Visually hide the real input (kept in the layout and fully
+     functional/tappable via the label's `for`) and use a big custom button
+     styled instead. */
+  .file-input-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .file-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     width: 100%;
-    font-size: 13px;
-    margin-bottom: 10px;
+    padding: 18px 12px;
+    margin-bottom: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    background: #fde2e1;
+    color: #b91c1c;
+    border: 2px solid #f7a8a6;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .file-btn:active {
+    background: #fbcbc9;
+  }
+  .file-name {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 10px 0;
+    word-break: break-all;
   }
   .thumbs {
     display: flex;
@@ -345,7 +380,9 @@
   <div class="card">
     <h2><span class="badge">1</span> 토트 리스트 사진</h2>
     <p class="help">창고관리 화면의 "테이블 뷰" 목록 사진 1장을 올리면 각 행의 <b>토트 바코드</b>와 <b>보내는 센터</b>를 인식합니다.</p>
-    <input type="file" id="listInput" accept="image/*">
+    <label for="listInput" class="file-btn">📷 리스트 사진 선택</label>
+    <input type="file" id="listInput" accept="image/*" class="file-input-hidden">
+    <p class="file-name" id="listFileName"></p>
     <div class="thumbs" id="listThumbs"></div>
     <button class="btn-primary" id="listBtn" onclick="recognizeList()" disabled>리스트 인식하기</button>
     <div class="status-line" id="listStatus"></div>
@@ -354,7 +391,9 @@
   <div class="card">
     <h2><span class="badge">2</span> 상품정보 사진 (여러 장 가능)</h2>
     <p class="help">토트를 스캔하면 뜨는 상품정보 화면 사진을 필요한 만큼 올리면 각 사진에서 <b>토트(위치)</b>, <b>스큐</b>, <b>품명</b>을 인식합니다. (LPN·무게는 자동으로 무시)</p>
-    <input type="file" id="productInput" accept="image/*" multiple>
+    <label for="productInput" class="file-btn">📷 상품정보 사진 선택</label>
+    <input type="file" id="productInput" accept="image/*" multiple class="file-input-hidden">
+    <p class="file-name" id="productFileName"></p>
     <div class="thumbs" id="productThumbs"></div>
     <button class="btn-primary" id="productBtn" onclick="recognizeProducts()" disabled>상품정보 인식하기</button>
     <div class="status-line" id="productStatus"></div>
@@ -452,13 +491,32 @@ function showToast(msg) {
 // ---------- file inputs ----------
 document.getElementById('listInput').addEventListener('change', (e) => {
   listFile = e.target.files[0] || null;
+  document.getElementById('listFileName').textContent = listFile ? listFile.name : '';
   renderListThumb();
   updateButtonStates();
+  // Recognize immediately on selection so there's no separate button tap —
+  // the "리스트 인식하기" button stays as a manual retry if needed.
+  if (listFile) {
+    if (apiKey) {
+      recognizeList();
+    } else {
+      showToast('먼저 ⚙️ 설정에서 API 키를 입력해주세요');
+    }
+  }
 });
 document.getElementById('productInput').addEventListener('change', (e) => {
   productFiles = Array.from(e.target.files || []);
+  document.getElementById('productFileName').textContent =
+    productFiles.length > 0 ? productFiles.length + '개 선택됨' : '';
   renderProductThumbs();
   updateButtonStates();
+  if (productFiles.length > 0) {
+    if (apiKey) {
+      recognizeProducts();
+    } else {
+      showToast('먼저 ⚙️ 설정에서 API 키를 입력해주세요');
+    }
+  }
 });
 
 function renderListThumb() {
@@ -836,38 +894,71 @@ function openBarcodeModal(label, value) {
     return;
   }
   document.getElementById('barcodeOverlay').classList.add('show');
+
+  // Fire the save/share flow immediately in the same tap that opened this
+  // modal — on iPhone that means the native share sheet pops up right away,
+  // so saving only takes the one unavoidable "이미지 저장" tap in it instead
+  // of an extra tap on our own button first. Everything up to here has to
+  // stay synchronous (no await) or iOS revokes the share permission it
+  // grants for the duration of a user gesture. If this fails for any reason,
+  // the "사진 앱에 저장" button in the modal still works as a manual retry.
+  try {
+    shareOrDownloadFile(makeBarcodeFile());
+  } catch (err) {
+    // ignored — manual button below covers it
+  }
 }
 
 function closeBarcodeModal() {
   document.getElementById('barcodeOverlay').classList.remove('show');
 }
 
-function saveBarcodeImage() {
-  const canvas = document.getElementById('barcodeCanvas');
-  canvas.toBlob(async (blob) => {
-    if (!blob) { showToast('저장에 실패했습니다'); return; }
-    const safeValue = currentBarcodeValue.replace(/[^A-Za-z0-9-]/g, '_');
-    const fileName = (currentBarcodeLabel || 'barcode') + '_' + safeValue + '.png';
-    const file = new File([blob], fileName, { type: 'image/png' });
+// Synchronous data URL -> Blob conversion (no fetch()/toBlob() await) so the
+// browser still considers this call part of the same user gesture.
+function dataURLtoBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: currentBarcodeLabel });
-        return;
-      } catch (err) {
-        // user cancelled the share sheet, or share isn't actually usable here —
-        // fall through to the plain download-link fallback below.
-      }
-    }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }, 'image/png');
+function makeBarcodeFile() {
+  const canvas = document.getElementById('barcodeCanvas');
+  const blob = dataURLtoBlob(canvas.toDataURL('image/png'));
+  const safeValue = (currentBarcodeValue || 'barcode').replace(/[^A-Za-z0-9-]/g, '_');
+  const fileName = (currentBarcodeLabel || 'barcode') + '_' + safeValue + '.png';
+  return new File([blob], fileName, { type: 'image/png' });
+}
+
+// Tries the native share sheet (which on iPhone offers "이미지 저장" straight
+// to the Photos app); a website can't skip that one confirmation tap —
+// Apple requires it so a page can't silently write to someone's photo
+// library — so this is the fewest taps we can get to. Falls back to a plain
+// download link on browsers without file sharing support.
+function shareOrDownloadFile(file) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: currentBarcodeLabel }).catch(() => {});
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function saveBarcodeImage() {
+  try {
+    shareOrDownloadFile(makeBarcodeFile());
+  } catch (err) {
+    showToast('저장에 실패했습니다');
+  }
 }
 
 function copyAll() {
@@ -912,6 +1003,8 @@ function resetAll() {
   document.getElementById('productInput').value = '';
   document.getElementById('listStatus').textContent = '';
   document.getElementById('productStatus').textContent = '';
+  document.getElementById('listFileName').textContent = '';
+  document.getElementById('productFileName').textContent = '';
   renderListThumb();
   renderProductThumbs();
   renderResults();

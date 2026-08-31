@@ -172,50 +172,6 @@
   }
   .status-line.err { color: var(--danger); }
   .status-line.ok { color: var(--ok); }
-  .row-item {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    margin-bottom: 8px;
-    background: #f9fafb;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 8px;
-  }
-  .row-item .fields {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .row-item .fields.two-col {
-    flex-direction: row;
-  }
-  .row-item input[type=text] {
-    width: 100%;
-    font-size: 13px;
-    padding: 7px 8px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: white;
-    color: var(--text);
-  }
-  .field-label {
-    font-size: 10.5px;
-    color: var(--muted);
-    display: block;
-    margin-bottom: 2px;
-  }
-  .add-row-btn {
-    background: none;
-    border: 1.5px dashed #9ca3af;
-    color: var(--muted);
-    width: 100%;
-    padding: 8px;
-    border-radius: 8px;
-    font-size: 13px;
-    margin-top: 4px;
-  }
   .result-card {
     background: #f9fafb;
     border: 1px solid var(--border);
@@ -227,14 +183,25 @@
     border-color: #fbbf24;
     background: #fffbeb;
   }
-  .result-card pre {
+  .result-card .result-text {
+    display: block;
+    width: 100%;
+    resize: vertical;
     white-space: pre-wrap;
     word-break: break-all;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
     font-size: 13.5px;
     line-height: 1.6;
     margin: 0 0 10px 0;
+    padding: 8px 9px;
     color: var(--text);
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .result-card .result-text:focus {
+    outline: none;
+    border-color: var(--blue);
   }
   .result-card .copy-btn {
     background: var(--blue);
@@ -244,6 +211,10 @@
     border-radius: 8px;
     font-size: 12.5px;
     font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .result-card .copy-btn:last-child {
+    margin-bottom: 0;
   }
   .result-top-actions {
     display: flex;
@@ -363,9 +334,6 @@
     <div class="thumbs" id="listThumbs"></div>
     <button class="btn-primary" id="listBtn" onclick="recognizeList()" disabled>리스트 인식하기</button>
     <div class="status-line" id="listStatus"></div>
-
-    <div id="listRows" style="margin-top:12px;"></div>
-    <button class="add-row-btn" onclick="addListRow()">+ 행 직접 추가</button>
   </div>
 
   <div class="card">
@@ -375,9 +343,6 @@
     <div class="thumbs" id="productThumbs"></div>
     <button class="btn-primary" id="productBtn" onclick="recognizeProducts()" disabled>상품정보 인식하기</button>
     <div class="status-line" id="productStatus"></div>
-
-    <div id="productRows" style="margin-top:12px;"></div>
-    <button class="add-row-btn" onclick="addProductRow()">+ 항목 직접 추가</button>
   </div>
 
   <div class="card">
@@ -589,7 +554,7 @@ NAME=<값>
 
 주의:
 - "LPN" 라벨이나 "무게" 라벨에 적힌 값은 절대 출력하지 마라.
-- 위 3가지 중 화면에서 찾을 수 없는 항목이 있으면, 그 줄의 값 자리에 정확히 "인식실패"라고만 적어라.`;
+- 위 3가지 중 화면에서 찾을 수 없는 항목이 있으면, 그 줄의 값 자리에 정확히 "X"라고만 적어라.`;
 
 // ---------- parsing ----------
 function parseListResponse(text) {
@@ -608,9 +573,9 @@ function parseProductResponse(text) {
   const skuM = text.match(/SKU\s*=\s*(.+)/i);
   const nameM = text.match(/NAME\s*=\s*(.+)/i);
   return {
-    tote: toteM ? toteM[1].trim() : '인식실패',
-    sku: skuM ? skuM[1].trim() : '인식실패',
-    name: nameM ? nameM[1].trim() : '인식실패'
+    tote: toteM ? toteM[1].trim() : 'X',
+    sku: skuM ? skuM[1].trim() : 'X',
+    name: nameM ? nameM[1].trim() : 'X'
   };
 }
 
@@ -633,7 +598,6 @@ async function recognizeList() {
       parsed.forEach(r => listRows.push({ id: rowIdSeq++, tote: r.tote, center: r.center }));
       status.className = 'status-line ok';
       status.textContent = parsed.length + '개 행 인식 완료';
-      renderListRows();
       renderResults();
     }
   } catch (err) {
@@ -661,7 +625,7 @@ async function recognizeProducts() {
       const text = await callClaudeVision(base64, PRODUCT_PROMPT);
       const parsed = parseProductResponse(text);
       products.push({ id: prodIdSeq++, tote: parsed.tote, sku: parsed.sku, name: parsed.name });
-      if (parsed.tote === '인식실패' || parsed.sku === '인식실패' || parsed.name === '인식실패') {
+      if (parsed.tote === 'X' || parsed.sku === 'X' || parsed.name === 'X') {
         if (statusIcon) statusIcon.textContent = '⚠️';
         failCount++;
       } else {
@@ -671,9 +635,8 @@ async function recognizeProducts() {
     } catch (err) {
       if (statusIcon) statusIcon.textContent = '❌';
       failCount++;
-      products.push({ id: prodIdSeq++, tote: '인식실패', sku: '인식실패', name: '인식실패 (' + err.message + ')' });
+      products.push({ id: prodIdSeq++, tote: 'X', sku: 'X', name: 'X' });
     }
-    renderProductRows();
     renderResults();
   }
 
@@ -682,85 +645,6 @@ async function recognizeProducts() {
   updateButtonStates();
 }
 
-// ---------- editable list rows ----------
-function renderListRows() {
-  const wrap = document.getElementById('listRows');
-  wrap.innerHTML = '';
-  listRows.forEach((row) => {
-    const div = document.createElement('div');
-    div.className = 'row-item';
-    div.innerHTML = `
-      <div class="fields two-col">
-        <div>
-          <span class="field-label">토트 바코드</span>
-          <input type="text" value="${escapeAttr(row.tote)}" oninput="updateListRow(${row.id}, 'tote', this.value)">
-        </div>
-        <div>
-          <span class="field-label">보내는 센터</span>
-          <input type="text" value="${escapeAttr(row.center)}" oninput="updateListRow(${row.id}, 'center', this.value)">
-        </div>
-      </div>
-      <button class="btn-danger-ghost" onclick="removeListRow(${row.id})">✕</button>
-    `;
-    wrap.appendChild(div);
-  });
-}
-function updateListRow(id, field, value) {
-  const row = listRows.find(r => r.id === id);
-  if (row) { row[field] = value; renderResults(); }
-}
-function removeListRow(id) {
-  listRows = listRows.filter(r => r.id !== id);
-  renderListRows();
-  renderResults();
-}
-function addListRow() {
-  listRows.push({ id: rowIdSeq++, tote: '', center: '' });
-  renderListRows();
-  renderResults();
-}
-
-// ---------- editable product rows ----------
-function renderProductRows() {
-  const wrap = document.getElementById('productRows');
-  wrap.innerHTML = '';
-  products.forEach((p) => {
-    const div = document.createElement('div');
-    div.className = 'row-item';
-    div.innerHTML = `
-      <div class="fields">
-        <div>
-          <span class="field-label">토트(위치)</span>
-          <input type="text" value="${escapeAttr(p.tote)}" oninput="updateProductRow(${p.id}, 'tote', this.value)">
-        </div>
-        <div>
-          <span class="field-label">스큐</span>
-          <input type="text" value="${escapeAttr(p.sku)}" oninput="updateProductRow(${p.id}, 'sku', this.value)">
-        </div>
-        <div>
-          <span class="field-label">품명</span>
-          <input type="text" value="${escapeAttr(p.name)}" oninput="updateProductRow(${p.id}, 'name', this.value)">
-        </div>
-      </div>
-      <button class="btn-danger-ghost" onclick="removeProductRow(${p.id})">✕</button>
-    `;
-    wrap.appendChild(div);
-  });
-}
-function updateProductRow(id, field, value) {
-  const p = products.find(x => x.id === id);
-  if (p) { p[field] = value; renderResults(); }
-}
-function removeProductRow(id) {
-  products = products.filter(p => p.id !== id);
-  renderProductRows();
-  renderResults();
-}
-function addProductRow() {
-  products.push({ id: prodIdSeq++, tote: '', sku: '', name: '' });
-  renderProductRows();
-  renderResults();
-}
 
 // ---------- matching ----------
 function normStrict(s) {
@@ -781,8 +665,8 @@ function computeMatches() {
     return {
       tote: row.tote,
       center: row.center,
-      sku: match ? match.sku : '인식 실패',
-      name: match ? match.name : '인식 실패',
+      sku: match ? match.sku : 'X',
+      name: match ? match.name : 'X',
       matched: !!match
     };
   });
@@ -811,18 +695,23 @@ function renderResults() {
     div.className = 'result-card' + (r.matched ? '' : ' mismatch');
     const text = buildBlockText(r);
 
-    const pre = document.createElement('pre');
-    pre.textContent = text;
+    // Editable textarea instead of read-only text: photos are no longer
+    // shown as editable field boxes upstream, so this final step is where
+    // a wrong/failed recognition gets corrected before copying.
+    const ta = document.createElement('textarea');
+    ta.className = 'result-text result-text-main';
+    ta.rows = 4;
+    ta.value = text;
+    ta.spellcheck = false;
 
     const btn = document.createElement('button');
     btn.className = 'copy-btn';
     btn.textContent = '복사';
-    // Attach via closure rather than inline onclick — embedding arbitrary
-    // recognized text (which may contain quotes) into an HTML attribute
-    // string breaks the markup, so build the DOM node directly instead.
-    btn.addEventListener('click', () => copyText(text));
+    // Read the textarea's current value at click time (not the original
+    // computed text) so any manual edits get copied.
+    btn.addEventListener('click', () => copyText(ta.value));
 
-    div.appendChild(pre);
+    div.appendChild(ta);
     div.appendChild(btn);
     wrap.appendChild(div);
   });
@@ -830,22 +719,46 @@ function renderResults() {
   if (unmatchedProducts.length > 0) {
     const warnDiv = document.createElement('div');
     warnDiv.className = 'result-card mismatch';
-    let html = '<p style="margin:0 0 8px 0;font-size:12.5px;" class="fail-tag">⚠ 리스트의 토트와 매칭되지 않은 상품정보</p>';
+
+    const label = document.createElement('p');
+    label.style.margin = '0 0 8px 0';
+    label.style.fontSize = '12.5px';
+    label.className = 'fail-tag';
+    label.textContent = '⚠ 리스트의 토트와 매칭되지 않은 상품정보';
+    warnDiv.appendChild(label);
+
     unmatchedProducts.forEach(p => {
-      html += `<pre style="margin-bottom:6px;">토트: ${escapeHtml(p.tote)}\n스큐: ${escapeHtml(p.sku)}\n품명: ${escapeHtml(p.name)}</pre>`;
+      const text = `토트: ${p.tote}\n스큐: ${p.sku}\n품명: ${p.name}`;
+
+      const ta = document.createElement('textarea');
+      ta.className = 'result-text';
+      ta.rows = 3;
+      ta.value = text;
+      ta.spellcheck = false;
+      ta.style.marginBottom = '6px';
+
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.textContent = '복사';
+      btn.addEventListener('click', () => copyText(ta.value));
+
+      warnDiv.appendChild(ta);
+      warnDiv.appendChild(btn);
     });
-    warnDiv.innerHTML = html;
+
     wrap.appendChild(warnDiv);
   }
 }
 
 function copyAll() {
-  const { results } = computeMatches();
-  if (results.length === 0) {
+  // Read the live textarea values (not a fresh recompute) so any manual
+  // corrections made in the result cards are included.
+  const areas = document.querySelectorAll('#resultsWrap .result-text-main');
+  if (areas.length === 0) {
     showToast('복사할 내용이 없습니다');
     return;
   }
-  const fullText = results.map(buildBlockText).join('\n\n');
+  const fullText = Array.from(areas).map(a => a.value).join('\n\n');
   copyText(fullText);
 }
 
@@ -881,8 +794,6 @@ function resetAll() {
   document.getElementById('productStatus').textContent = '';
   renderListThumb();
   renderProductThumbs();
-  renderListRows();
-  renderProductRows();
   renderResults();
   updateButtonStates();
 }

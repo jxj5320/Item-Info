@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>토트 상품정보 추출기</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --blue: #2563eb;
+    --blue-dark: #1d4ed8;
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+    --danger: #dc2626;
+    --ok: #16a34a;
+    --warn: #d97706;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding-bottom: 60px;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--blue);
+    color: white;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  }
+  header h1 {
+    font-size: 17px;
+    margin: 0;
+    font-weight: 700;
+  }
+  header .icon-btn {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 14px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border: 1px solid var(--border);
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .card h2 .badge {
+    background: var(--blue);
+    color: white;
+    border-radius: 999px;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .help {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 12px 0;
+    line-height: 1.5;
+  }
+  input[type=file] {
+    display: block;
+    width: 100%;
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .thumbs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .thumbs img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .thumb-wrap {
+    position: relative;
+  }
+  .thumb-status {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    font-size: 13px;
+    background: white;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--blue);
+    color: white;
+    border: none;
+    padding: 11px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    width: 100%;
+  }
+  .btn-primary:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: #eef2ff;
+    color: var(--blue-dark);
+    border: 1px solid #c7d2fe;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .btn-danger-ghost {
+    background: none;
+    border: none;
+    color: var(--danger);
+    font-size: 18px;
+    padding: 4px 8px;
+    line-height: 1;
+  }
+  .status-line {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 8px;
+    min-height: 16px;
+  }
+  .status-line.err { color: var(--danger); }
+  .status-line.ok { color: var(--ok); }
+  .row-item {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 8px;
+    background: #f9fafb;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+  }
+  .row-item .fields {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .row-item .fields.two-col {
+    flex-direction: row;
+  }
+  .row-item input[type=text] {
+    width: 100%;
+    font-size: 13px;
+    padding: 7px 8px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: white;
+    color: var(--text);
+  }
+  .field-label {
+    font-size: 10.5px;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 2px;
+  }
+  .add-row-btn {
+    background: none;
+    border: 1.5px dashed #9ca3af;
+    color: var(--muted);
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  .result-card {
+    background: #f9fafb;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .result-card.mismatch {
+    border-color: #fbbf24;
+    background: #fffbeb;
+  }
+  .result-card pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin: 0 0 10px 0;
+    color: var(--text);
+  }
+  .result-card .copy-btn {
+    background: var(--blue);
+    color: white;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .result-top-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .result-top-actions button {
+    flex: 1;
+  }
+  .fail-tag {
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .empty-msg {
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+    padding: 12px 0;
+  }
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(17,24,39,0.92);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    z-index: 100;
+    white-space: nowrap;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: none;
+    align-items: flex-end;
+    z-index: 50;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: white;
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    border-radius: 16px 16px 0 0;
+    padding: 20px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal h3 {
+    margin: 0 0 14px 0;
+    font-size: 16px;
+  }
+  .modal label {
+    font-size: 12.5px;
+    color: var(--muted);
+    display: block;
+    margin: 12px 0 4px 0;
+  }
+  .modal input, .modal select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .modal .modal-note {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .modal-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .modal-buttons button { flex: 1; padding: 11px; border-radius: 9px; font-size: 14px; border: none; }
+  .modal-buttons .cancel { background: #f3f4f6; color: var(--text); }
+  .modal-buttons .save { background: var(--blue); color: white; font-weight: 600; }
+  .spinner {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    border: 2px solid #d1d5db;
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: -2px;
+    margin-right: 5px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>토트 상품정보 추출기</h1>
+  <button class="icon-btn" onclick="openSettings()">⚙️</button>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2><span class="badge">1</span> 토트 리스트 사진</h2>
+    <p class="help">창고관리 화면의 "테이블 뷰" 목록 사진 1장을 올리면 각 행의 <b>토트 바코드</b>와 <b>보내는 센터</b>를 인식합니다.</p>
+    <input type="file" id="listInput" accept="image/*">
+    <div class="thumbs" id="listThumbs"></div>
+    <button class="btn-primary" id="listBtn" onclick="recognizeList()" disabled>리스트 인식하기</button>
+    <div class="status-line" id="listStatus"></div>
+
+    <div id="listRows" style="margin-top:12px;"></div>
+    <button class="add-row-btn" onclick="addListRow()">+ 행 직접 추가</button>
+  </div>
+
+  <div class="card">
+    <h2><span class="badge">2</span> 상품정보 사진 (여러 장 가능)</h2>
+    <p class="help">토트를 스캔하면 뜨는 상품정보 화면 사진을 필요한 만큼 올리면 각 사진에서 <b>토트(위치)</b>, <b>스큐</b>, <b>품명</b>을 인식합니다. (LPN·무게는 자동으로 무시)</p>
+    <input type="file" id="productInput" accept="image/*" multiple>
+    <div class="thumbs" id="productThumbs"></div>
+    <button class="btn-primary" id="productBtn" onclick="recognizeProducts()" disabled>상품정보 인식하기</button>
+    <div class="status-line" id="productStatus"></div>
+
+    <div id="productRows" style="margin-top:12px;"></div>
+    <button class="add-row-btn" onclick="addProductRow()">+ 항목 직접 추가</button>
+  </div>
+
+  <div class="card">
+    <h2><span class="badge">3</span> 결과 (팀즈용 텍스트)</h2>
+    <div class="result-top-actions">
+      <button class="btn-secondary" onclick="copyAll()">📋 전체 복사</button>
+      <button class="btn-secondary" onclick="resetAll()">🗑 전체 초기화</button>
+    </div>
+    <div id="resultsWrap"></div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal">
+    <h3>⚙️ 설정</h3>
+    <label>Anthropic API 키</label>
+    <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+    <label>모델</label>
+    <select id="modelInput">
+      <option value="claude-haiku-4-5">claude-haiku-4-5 (빠름, 기본)</option>
+      <option value="claude-sonnet-4-5">claude-sonnet-4-5 (정확도 우선)</option>
+    </select>
+    <p class="modal-note">API 키는 이 기기의 브라우저(localStorage)에만 저장되고, 서버 없이 브라우저에서 바로 Anthropic API로 전송됩니다.</p>
+    <div class="modal-buttons">
+      <button class="cancel" onclick="closeSettings()">취소</button>
+      <button class="save" onclick="saveSettings()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------- state ----------
+let apiKey = localStorage.getItem('toteApiKey') || '';
+let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
+
+let listRows = [];     // {id, tote, center}
+let products = [];     // {id, tote, sku, name}
+
+let listFile = null;
+let productFiles = [];
+
+let rowIdSeq = 1;
+let prodIdSeq = 1;
+
+// ---------- settings modal ----------
+function openSettings() {
+  document.getElementById('apiKeyInput').value = apiKey;
+  document.getElementById('modelInput').value = model;
+  document.getElementById('settingsOverlay').classList.add('show');
+}
+function closeSettings() {
+  document.getElementById('settingsOverlay').classList.remove('show');
+}
+function saveSettings() {
+  apiKey = document.getElementById('apiKeyInput').value.trim();
+  model = document.getElementById('modelInput').value;
+  localStorage.setItem('toteApiKey', apiKey);
+  localStorage.setItem('toteModel', model);
+  closeSettings();
+  updateButtonStates();
+  showToast('설정 저장됨');
+}
+
+// ---------- toast ----------
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ---------- file inputs ----------
+document.getElementById('listInput').addEventListener('change', (e) => {
+  listFile = e.target.files[0] || null;
+  renderListThumb();
+  updateButtonStates();
+});
+document.getElementById('productInput').addEventListener('change', (e) => {
+  productFiles = Array.from(e.target.files || []);
+  renderProductThumbs();
+  updateButtonStates();
+});
+
+function renderListThumb() {
+  const wrap = document.getElementById('listThumbs');
+  wrap.innerHTML = '';
+  if (!listFile) return;
+  const img = document.createElement('img');
+  img.src = URL.createObjectURL(listFile);
+  wrap.appendChild(img);
+}
+
+function renderProductThumbs() {
+  const wrap = document.getElementById('productThumbs');
+  wrap.innerHTML = '';
+  productFiles.forEach((f, i) => {
+    const holder = document.createElement('div');
+    holder.className = 'thumb-wrap';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(f);
+    holder.appendChild(img);
+    const status = document.createElement('div');
+    status.className = 'thumb-status';
+    status.id = 'prodThumbStatus' + i;
+    status.textContent = '';
+    holder.appendChild(status);
+    wrap.appendChild(holder);
+  });
+}
+
+function updateButtonStates() {
+  document.getElementById('listBtn').disabled = !(apiKey && listFile);
+  document.getElementById('productBtn').disabled = !(apiKey && productFiles.length > 0);
+}
+
+// ---------- image resize + base64 ----------
+function fileToResizedBase64(file, maxDim = 1100, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e) => { img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round(height * (maxDim / width));
+          width = maxDim;
+        } else {
+          width = Math.round(width * (maxDim / height));
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- Claude API ----------
+async function callClaudeVision(base64, promptText) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: model,
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+          { type: 'text', text: promptText }
+        ]
+      }]
+    })
+  });
+  if (!res.ok) {
+    let msg = 'API 오류 (' + res.status + ')';
+    try {
+      const j = await res.json();
+      if (j && j.error && j.error.message) msg += ': ' + j.error.message;
+    } catch (e) {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  return (data.content && data.content[0] && data.content[0].text) || '';
+}
+
+// ---------- prompts ----------
+const LIST_PROMPT = `다음은 창고관리 시스템의 "테이블 뷰" 화면 스크린샷이다. 화면에는 여러 행(row)으로 이루어진 표가 있고, 표에는 "토트 바코드", "보내는 센터" 등 여러 컬럼이 있다.
+
+각 행에 대해 정확히 아래 형식으로 한 줄씩만 출력해라 (다른 설명이나 머리말은 절대 붙이지 말 것):
+TOTE=<토트 바코드 값>||CENTER=<보내는 센터 값>
+
+규칙:
+- 토트 바코드는 화면에 보이는 그대로, 하이픈까지 정확히 옮겨 적어라 (예: GC-GP682-651-2).
+- 보내는 센터는 화면에 보이는 그대로 옮겨 적어라 (예: INC17, INC39).
+- 표에 보이는 모든 행을 빠짐없이, 위에서 아래 순서대로 출력해라.
+- 표 헤더(제목) 줄이나 다른 설명은 출력하지 마라.`;
+
+const PRODUCT_PROMPT = `다음은 창고관리 시스템에서 토트(위치) 바코드를 스캔했을 때 뜨는 "상품 정보" 화면 스크린샷이다.
+
+화면에서 아래 3가지 값만 정확히 찾아서, 다른 설명 없이 정확히 아래 형식 3줄로만 출력해라:
+TOTE=<값>
+SKU=<값>
+NAME=<값>
+
+각 값을 찾는 기준:
+- TOTE: 화면 상단 검은 띠에 "위치"라는 라벨과 함께 큰 글씨로 적힌 코드 (예: GC-GP682-651-2, 145-1F34-2-101 같은 형태).
+- SKU: "스큐"라고 표시된 라벨 옆에 적힌 값.
+- NAME: 상품 정보 카드에 적힌 상품 이름 전체 (대괄호 [ ]로 시작하는 부분까지 포함해서 그대로).
+
+주의:
+- "LPN" 라벨이나 "무게" 라벨에 적힌 값은 절대 출력하지 마라.
+- 위 3가지 중 화면에서 찾을 수 없는 항목이 있으면, 그 줄의 값 자리에 정확히 "인식실패"라고만 적어라.`;
+
+// ---------- parsing ----------
+function parseListResponse(text) {
+  const rows = [];
+  text.split('\n').forEach((line) => {
+    const m = line.match(/TOTE\s*=\s*(.*?)\s*\|\|\s*CENTER\s*=\s*(.*)/i);
+    if (m) {
+      rows.push({ tote: m[1].trim(), center: m[2].trim() });
+    }
+  });
+  return rows;
+}
+
+function parseProductResponse(text) {
+  const toteM = text.match(/TOTE\s*=\s*(.+)/i);
+  const skuM = text.match(/SKU\s*=\s*(.+)/i);
+  const nameM = text.match(/NAME\s*=\s*(.+)/i);
+  return {
+    tote: toteM ? toteM[1].trim() : '인식실패',
+    sku: skuM ? skuM[1].trim() : '인식실패',
+    name: nameM ? nameM[1].trim() : '인식실패'
+  };
+}
+
+// ---------- recognize list ----------
+async function recognizeList() {
+  if (!listFile || !apiKey) return;
+  const btn = document.getElementById('listBtn');
+  const status = document.getElementById('listStatus');
+  btn.disabled = true;
+  status.className = 'status-line';
+  status.innerHTML = '<span class="spinner"></span>리스트 인식 중...';
+  try {
+    const base64 = await fileToResizedBase64(listFile);
+    const text = await callClaudeVision(base64, LIST_PROMPT);
+    const parsed = parseListResponse(text);
+    if (parsed.length === 0) {
+      status.className = 'status-line err';
+      status.textContent = '행을 인식하지 못했습니다. 사진을 다시 확인해주세요.';
+    } else {
+      parsed.forEach(r => listRows.push({ id: rowIdSeq++, tote: r.tote, center: r.center }));
+      status.className = 'status-line ok';
+      status.textContent = parsed.length + '개 행 인식 완료';
+      renderListRows();
+      renderResults();
+    }
+  } catch (err) {
+    status.className = 'status-line err';
+    status.textContent = '오류: ' + err.message;
+  } finally {
+    updateButtonStates();
+  }
+}
+
+// ---------- recognize products (loop, isolate failures) ----------
+async function recognizeProducts() {
+  if (productFiles.length === 0 || !apiKey) return;
+  const btn = document.getElementById('productBtn');
+  const status = document.getElementById('productStatus');
+  btn.disabled = true;
+  let okCount = 0, failCount = 0;
+
+  for (let i = 0; i < productFiles.length; i++) {
+    status.className = 'status-line';
+    status.innerHTML = '<span class="spinner"></span>상품정보 인식 중 (' + (i + 1) + '/' + productFiles.length + ')';
+    const statusIcon = document.getElementById('prodThumbStatus' + i);
+    try {
+      const base64 = await fileToResizedBase64(productFiles[i]);
+      const text = await callClaudeVision(base64, PRODUCT_PROMPT);
+      const parsed = parseProductResponse(text);
+      products.push({ id: prodIdSeq++, tote: parsed.tote, sku: parsed.sku, name: parsed.name });
+      if (parsed.tote === '인식실패' || parsed.sku === '인식실패' || parsed.name === '인식실패') {
+        if (statusIcon) statusIcon.textContent = '⚠️';
+        failCount++;
+      } else {
+        if (statusIcon) statusIcon.textContent = '✅';
+        okCount++;
+      }
+    } catch (err) {
+      if (statusIcon) statusIcon.textContent = '❌';
+      failCount++;
+      products.push({ id: prodIdSeq++, tote: '인식실패', sku: '인식실패', name: '인식실패 (' + err.message + ')' });
+    }
+    renderProductRows();
+    renderResults();
+  }
+
+  status.className = failCount > 0 ? 'status-line err' : 'status-line ok';
+  status.textContent = '완료: 성공 ' + okCount + '건' + (failCount > 0 ? ', 실패/주의 ' + failCount + '건' : '');
+  updateButtonStates();
+}
+
+// ---------- editable list rows ----------
+function renderListRows() {
+  const wrap = document.getElementById('listRows');
+  wrap.innerHTML = '';
+  listRows.forEach((row) => {
+    const div = document.createElement('div');
+    div.className = 'row-item';
+    div.innerHTML = `
+      <div class="fields two-col">
+        <div>
+          <span class="field-label">토트 바코드</span>
+          <input type="text" value="${escapeAttr(row.tote)}" oninput="updateListRow(${row.id}, 'tote', this.value)">
+        </div>
+        <div>
+          <span class="field-label">보내는 센터</span>
+          <input type="text" value="${escapeAttr(row.center)}" oninput="updateListRow(${row.id}, 'center', this.value)">
+        </div>
+      </div>
+      <button class="btn-danger-ghost" onclick="removeListRow(${row.id})">✕</button>
+    `;
+    wrap.appendChild(div);
+  });
+}
+function updateListRow(id, field, value) {
+  const row = listRows.find(r => r.id === id);
+  if (row) { row[field] = value; renderResults(); }
+}
+function removeListRow(id) {
+  listRows = listRows.filter(r => r.id !== id);
+  renderListRows();
+  renderResults();
+}
+function addListRow() {
+  listRows.push({ id: rowIdSeq++, tote: '', center: '' });
+  renderListRows();
+  renderResults();
+}
+
+// ---------- editable product rows ----------
+function renderProductRows() {
+  const wrap = document.getElementById('productRows');
+  wrap.innerHTML = '';
+  products.forEach((p) => {
+    const div = document.createElement('div');
+    div.className = 'row-item';
+    div.innerHTML = `
+      <div class="fields">
+        <div>
+          <span class="field-label">토트(위치)</span>
+          <input type="text" value="${escapeAttr(p.tote)}" oninput="updateProductRow(${p.id}, 'tote', this.value)">
+        </div>
+        <div>
+          <span class="field-label">스큐</span>
+          <input type="text" value="${escapeAttr(p.sku)}" oninput="updateProductRow(${p.id}, 'sku', this.value)">
+        </div>
+        <div>
+          <span class="field-label">품명</span>
+          <input type="text" value="${escapeAttr(p.name)}" oninput="updateProductRow(${p.id}, 'name', this.value)">
+        </div>
+      </div>
+      <button class="btn-danger-ghost" onclick="removeProductRow(${p.id})">✕</button>
+    `;
+    wrap.appendChild(div);
+  });
+}
+function updateProductRow(id, field, value) {
+  const p = products.find(x => x.id === id);
+  if (p) { p[field] = value; renderResults(); }
+}
+function removeProductRow(id) {
+  products = products.filter(p => p.id !== id);
+  renderProductRows();
+  renderResults();
+}
+function addProductRow() {
+  products.push({ id: prodIdSeq++, tote: '', sku: '', name: '' });
+  renderProductRows();
+  renderResults();
+}
+
+// ---------- matching ----------
+function normStrict(s) {
+  return (s || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+function normLoose(s) {
+  return normStrict(s).replace(/[^A-Z0-9]/g, '');
+}
+
+function computeMatches() {
+  const usedProductIds = new Set();
+  const results = listRows.map((row) => {
+    let match = products.find(p => !usedProductIds.has(p.id) && normStrict(p.tote) === normStrict(row.tote) && normStrict(row.tote) !== '');
+    if (!match) {
+      match = products.find(p => !usedProductIds.has(p.id) && normLoose(p.tote) === normLoose(row.tote) && normLoose(row.tote) !== '');
+    }
+    if (match) usedProductIds.add(match.id);
+    return {
+      tote: row.tote,
+      center: row.center,
+      sku: match ? match.sku : '인식 실패',
+      name: match ? match.name : '인식 실패',
+      matched: !!match
+    };
+  });
+  const unmatchedProducts = products.filter(p => !usedProductIds.has(p.id));
+  return { results, unmatchedProducts };
+}
+
+function buildBlockText(r) {
+  return `토트: ${r.tote}\n보내는센터: ${r.center}\n스큐: ${r.sku}\n품명: ${r.name}`;
+}
+
+// ---------- render results ----------
+function renderResults() {
+  const wrap = document.getElementById('resultsWrap');
+  wrap.innerHTML = '';
+
+  if (listRows.length === 0) {
+    wrap.innerHTML = '<p class="empty-msg">리스트 사진을 인식하면 여기에 결과가 표시됩니다.</p>';
+    return;
+  }
+
+  const { results, unmatchedProducts } = computeMatches();
+
+  results.forEach((r, idx) => {
+    const div = document.createElement('div');
+    div.className = 'result-card' + (r.matched ? '' : ' mismatch');
+    const text = buildBlockText(r);
+
+    const pre = document.createElement('pre');
+    pre.textContent = text;
+
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = '복사';
+    // Attach via closure rather than inline onclick — embedding arbitrary
+    // recognized text (which may contain quotes) into an HTML attribute
+    // string breaks the markup, so build the DOM node directly instead.
+    btn.addEventListener('click', () => copyText(text));
+
+    div.appendChild(pre);
+    div.appendChild(btn);
+    wrap.appendChild(div);
+  });
+
+  if (unmatchedProducts.length > 0) {
+    const warnDiv = document.createElement('div');
+    warnDiv.className = 'result-card mismatch';
+    let html = '<p style="margin:0 0 8px 0;font-size:12.5px;" class="fail-tag">⚠ 리스트의 토트와 매칭되지 않은 상품정보</p>';
+    unmatchedProducts.forEach(p => {
+      html += `<pre style="margin-bottom:6px;">토트: ${escapeHtml(p.tote)}\n스큐: ${escapeHtml(p.sku)}\n품명: ${escapeHtml(p.name)}</pre>`;
+    });
+    warnDiv.innerHTML = html;
+    wrap.appendChild(warnDiv);
+  }
+}
+
+function copyAll() {
+  const { results } = computeMatches();
+  if (results.length === 0) {
+    showToast('복사할 내용이 없습니다');
+    return;
+  }
+  const fullText = results.map(buildBlockText).join('\n\n');
+  copyText(fullText);
+}
+
+function copyText(text, btnEl) {
+  const doCopyFallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(doCopyFallback);
+  } else {
+    doCopyFallback();
+  }
+  showToast('복사되었습니다');
+}
+
+// ---------- reset ----------
+function resetAll() {
+  if (!confirm('모든 사진과 인식 결과를 초기화할까요?')) return;
+  listRows = [];
+  products = [];
+  listFile = null;
+  productFiles = [];
+  document.getElementById('listInput').value = '';
+  document.getElementById('productInput').value = '';
+  document.getElementById('listStatus').textContent = '';
+  document.getElementById('productStatus').textContent = '';
+  renderListThumb();
+  renderProductThumbs();
+  renderListRows();
+  renderProductRows();
+  renderResults();
+  updateButtonStates();
+}
+
+// ---------- utils ----------
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeAttr(s) {
+  return escapeHtml(s);
+}
+
+// ---------- init ----------
+renderResults();
+if (!apiKey) {
+  setTimeout(() => { showToast('먼저 ⚙️ 설정에서 API 키를 입력해주세요'); }, 400);
+}
+
+// ---------- service worker ----------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

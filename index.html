@@ -714,16 +714,19 @@ async function callClaudeVision(base64, promptText) {
 }
 
 // ---------- prompts ----------
-const LIST_PROMPT = `다음은 창고관리 시스템의 "테이블 뷰" 화면 스크린샷이다. 화면에는 여러 행(row)으로 이루어진 표가 있고, 표에는 "토트 바코드", "보내는 센터" 등 여러 컬럼이 있다. 표에 "차량번호" 컬럼이 있을 수도 있다.
+const LIST_PROMPT = `다음은 창고관리 시스템의 표/엑셀 형태 화면 스크린샷이다. 화면에는 여러 행(row)으로 이루어진 표가 있다. 표의 컬럼 구성은 화면마다 다를 수 있는데, 아래 두 가지 형태가 모두 나올 수 있다:
+(형태 1) "토트 바코드", "보내는 센터" 컬럼 위주의 "테이블 뷰" 화면.
+(형태 2) "상품명", "토트 바코드", "수량", "QTY", "From FC", "컨테이너 바코드", "차량번호" 같은 컬럼이 있는 표. 이 형태에는 "보내는 센터"라는 이름의 컬럼이 따로 없을 수 있는데, 이때는 "From FC" 컬럼 값을 보내는 센터로 사용해라.
 
 각 행에 대해 정확히 아래 형식으로 한 줄씩만 출력해라 (다른 설명이나 머리말은 절대 붙이지 말 것):
 TOTE=<토트 바코드 값>||CENTER=<보내는 센터 값>||VEHICLE=<차량번호 값>
 
 규칙:
 - 토트 바코드는 화면에 보이는 그대로, 하이픈까지 정확히 옮겨 적어라 (예: GC-GP682-651-2).
-- 보내는 센터는 화면에 보이는 그대로 옮겨 적어라 (예: INC17, INC39).
-- 표에 "차량번호" 컬럼이 있으면 그 값을 VEHICLE 자리에 적고, 컬럼 자체가 없으면 VEHICLE 자리에 정확히 "X"라고 적어라.
-- 표에 보이는 모든 행을 빠짐없이, 위에서 아래 순서대로 출력해라.
+- 보내는 센터는 "보내는 센터" 컬럼이 있으면 그 값을, 없고 "From FC" 컬럼이 있으면 그 값을 화면에 보이는 그대로 옮겨 적어라 (예: INC17, INC39, YON 3).
+- "차량번호" 컬럼이 있으면 그 값을 VEHICLE 자리에 적어라. 차량번호는 보통 4자리 숫자이며, 숫자만 정확히 옮겨 적고 다른 글자나 공백을 붙이지 마라. 이 컬럼이 있는데 특정 행의 값을 놓치고 건너뛰는 실수를 하지 않도록 각 행마다 반드시 다시 확인해라. "차량번호" 컬럼 자체가 화면에 없으면 VEHICLE 자리에 정확히 "X"라고 적어라.
+- "수량", "QTY", "컨테이너 바코드", "상품명" 같은 다른 컬럼이 있어도 위 세 값(TOTE/CENTER/VEHICLE)과 무관하니 무시해라.
+- 표에 보이는 모든 행을 빠짐없이, 위에서 아래 순서대로 출력해라. 같은 토트 바코드가 여러 행에 반복되어도 각 행을 각각 출력해라.
 - 표 헤더(제목) 줄이나 다른 설명은 출력하지 마라.
 
 글자 판독 시 반드시 주의할 점:
@@ -913,7 +916,11 @@ async function recognizeChamber() {
         let anyBad = false;
         rows.forEach((r) => {
           if (r.chamber === 'X' || !r.vehicle) { anyBad = true; return; }
-          chamberMap[normStrict(r.vehicle)] = r.chamber.toUpperCase();
+          // Keyed by normLoose (strips everything but letters/digits), not
+          // normStrict, so a stray suffix or punctuation the model adds to
+          // one side (e.g. "9416" vs "9416번" vs "9416-B") doesn't break the
+          // lookup against the list photo's 차량번호 value.
+          chamberMap[normLoose(r.vehicle)] = r.chamber.toUpperCase();
         });
         if (anyBad) {
           if (statusIcon) statusIcon.textContent = '⚠️';
@@ -998,8 +1005,9 @@ function computeMatches() {
 // started duplicating it right below.
 function buildBlockText(r) {
   let text = `${r.tote}\n보내는센터: ${r.center}\n스큐: ${r.sku}\n품명: ${r.name}`;
-  if (r.vehicle && normStrict(r.vehicle) !== 'X') {
-    const chamber = chamberMap[normStrict(r.vehicle)];
+  const vLoose = normLoose(r.vehicle);
+  if (vLoose && vLoose !== 'X') {
+    const chamber = chamberMap[vLoose];
     if (chamber) {
       text += `\n차량번호: ${r.vehicle}-${chamber}`;
     }

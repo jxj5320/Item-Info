@@ -414,7 +414,17 @@
 <main>
 
   <div class="card">
-    <h2><span class="badge">1</span> 토트 리스트 사진</h2>
+    <h2><span class="badge">1</span> 차량위치 사진 (여러 장 가능)</h2>
+    <p class="help">A/B/C챔버 배치도 사진을 올리면 각 <b>차량번호</b>가 어느 챔버에 있는지 인식해서, 3번 결과의 해당 차량 항목에 반영합니다.</p>
+    <label for="chamberInput" class="file-btn">📷 차량위치 사진 선택</label>
+    <input type="file" id="chamberInput" accept="image/*" multiple class="file-input-hidden">
+    <p class="file-name" id="chamberFileName"></p>
+    <div class="thumbs" id="chamberThumbs"></div>
+    <div class="status-line" id="chamberStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="badge">2</span> 토트 리스트 사진</h2>
     <p class="help">창고관리 화면의 "테이블 뷰" 목록 사진 1장을 올리면 각 행의 <b>토트 바코드</b>와 <b>보내는 센터</b>를 인식합니다.</p>
     <label for="listInput" class="file-btn">📷 리스트 사진 선택</label>
     <input type="file" id="listInput" accept="image/*" class="file-input-hidden">
@@ -424,7 +434,7 @@
   </div>
 
   <div class="card">
-    <h2><span class="badge">2</span> 상품정보 사진 (여러 장 가능)</h2>
+    <h2><span class="badge">3</span> 상품정보 사진 (여러 장 가능)</h2>
     <p class="help">토트를 스캔하면 뜨는 상품정보 화면 사진을 필요한 만큼 올리면 각 사진에서 <b>토트(위치)</b>, <b>스큐</b>, <b>품명</b>을 인식합니다. (LPN·무게는 자동으로 무시)</p>
     <label for="productInput" class="file-btn">📷 상품정보 사진 선택</label>
     <input type="file" id="productInput" accept="image/*" multiple class="file-input-hidden">
@@ -434,7 +444,7 @@
   </div>
 
   <div class="card">
-    <h2><span class="badge">3</span> 결과 (팀즈용 텍스트)</h2>
+    <h2><span class="badge">4</span> 결과 (팀즈용 텍스트)</h2>
     <div class="result-top-actions">
       <button class="btn-secondary" onclick="copyAll()">📋 전체 복사</button>
       <button class="btn-secondary" onclick="resetAll()">🗑 전체 초기화</button>
@@ -481,11 +491,16 @@
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
-let listRows = [];     // {id, tote, center}
+let listRows = [];     // {id, tote, center, vehicle}
 let products = [];     // {id, tote, sku, name}
 
 let listFile = null;
 let productFiles = [];
+let chamberFiles = [];
+// 차량번호(normalized) -> 챔버 영문자, accumulated across every 차량위치
+// photo recognized so far (uploading more chamber photos adds to this,
+// it doesn't replace it — a new LIST photo does reset it, see below).
+let chamberMap = {};
 
 let rowIdSeq = 1;
 let prodIdSeq = 1;
@@ -529,6 +544,10 @@ document.getElementById('listInput').addEventListener('change', (e) => {
   // the previous batch (old rows, old matched products, old product photos)
   // so no stale entries can linger in the section 3 results. Without this,
   // re-loading the list only added to the old listRows/products arrays.
+  // 차량위치 data is deliberately NOT reset here: chamber assignments are
+  // uploaded once (usually before the list photo, per the intended
+  // workflow) and stay valid across multiple list/product batches, so a
+  // new list photo must not wipe out chamberMap.
   if (listFile) {
     listRows = [];
     products = [];
@@ -565,6 +584,19 @@ document.getElementById('productInput').addEventListener('change', (e) => {
     }
   }
 });
+document.getElementById('chamberInput').addEventListener('change', (e) => {
+  chamberFiles = Array.from(e.target.files || []);
+  document.getElementById('chamberFileName').textContent =
+    chamberFiles.length > 0 ? chamberFiles.length + '개 선택됨' : '';
+  renderChamberThumbs();
+  if (chamberFiles.length > 0) {
+    if (apiKey) {
+      recognizeChamber();
+    } else {
+      showToast('먼저 ⚙️ 설정에서 API 키를 입력해주세요');
+    }
+  }
+});
 
 function renderListThumb() {
   const wrap = document.getElementById('listThumbs');
@@ -587,6 +619,24 @@ function renderProductThumbs() {
     const status = document.createElement('div');
     status.className = 'thumb-status';
     status.id = 'prodThumbStatus' + i;
+    status.textContent = '';
+    holder.appendChild(status);
+    wrap.appendChild(holder);
+  });
+}
+
+function renderChamberThumbs() {
+  const wrap = document.getElementById('chamberThumbs');
+  wrap.innerHTML = '';
+  chamberFiles.forEach((f, i) => {
+    const holder = document.createElement('div');
+    holder.className = 'thumb-wrap';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(f);
+    holder.appendChild(img);
+    const status = document.createElement('div');
+    status.className = 'thumb-status';
+    status.id = 'chamberThumbStatus' + i;
     status.textContent = '';
     holder.appendChild(status);
     wrap.appendChild(holder);
@@ -664,14 +714,15 @@ async function callClaudeVision(base64, promptText) {
 }
 
 // ---------- prompts ----------
-const LIST_PROMPT = `다음은 창고관리 시스템의 "테이블 뷰" 화면 스크린샷이다. 화면에는 여러 행(row)으로 이루어진 표가 있고, 표에는 "토트 바코드", "보내는 센터" 등 여러 컬럼이 있다.
+const LIST_PROMPT = `다음은 창고관리 시스템의 "테이블 뷰" 화면 스크린샷이다. 화면에는 여러 행(row)으로 이루어진 표가 있고, 표에는 "토트 바코드", "보내는 센터" 등 여러 컬럼이 있다. 표에 "차량번호" 컬럼이 있을 수도 있다.
 
 각 행에 대해 정확히 아래 형식으로 한 줄씩만 출력해라 (다른 설명이나 머리말은 절대 붙이지 말 것):
-TOTE=<토트 바코드 값>||CENTER=<보내는 센터 값>
+TOTE=<토트 바코드 값>||CENTER=<보내는 센터 값>||VEHICLE=<차량번호 값>
 
 규칙:
 - 토트 바코드는 화면에 보이는 그대로, 하이픈까지 정확히 옮겨 적어라 (예: GC-GP682-651-2).
 - 보내는 센터는 화면에 보이는 그대로 옮겨 적어라 (예: INC17, INC39).
+- 표에 "차량번호" 컬럼이 있으면 그 값을 VEHICLE 자리에 적고, 컬럼 자체가 없으면 VEHICLE 자리에 정확히 "X"라고 적어라.
 - 표에 보이는 모든 행을 빠짐없이, 위에서 아래 순서대로 출력해라.
 - 표 헤더(제목) 줄이나 다른 설명은 출력하지 마라.
 
@@ -698,13 +749,45 @@ TOTE=<토트 바코드 값>||SKU=<스큐 값>||NAME=<상품명 값>
 - 표에 "수량", "QTY", "From FC", "컨테이너 바코드", "차량번호" 같은 다른 컬럼이 있어도 전부 무시해라 — 토트 바코드와 상품명(그리고 있다면 스큐)만 사용한다.
 - 위 항목 중 화면에서 찾을 수 없는 값이 있으면 그 자리에 정확히 "X"라고만 적어라.`;
 
+const CHAMBER_PROMPT = `다음 이미지는 냉동/냉장 창고의 챔버(구역) 배치도 사진이다. 이미지 좌상단이나 제목 부분에 "A챔버", "B챔버", "C챔버"처럼 챔버를 나타내는 영문자가 포함된 라벨이 있다 (예: "FROZEN B챔버" → 챔버는 B).
+
+배치도 안에는 여러 개의 말풍선/카드 모양 표시가 있고, 각 표시에는 날짜(예: 09/03), 4자리 숫자로 된 차량번호, 그리고 수량 표시(예: 7p, 1sku)가 함께 적혀 있다.
+
+이미지에 보이는 각 차량번호에 대해, 정확히 아래 형식으로 한 줄씩만 출력해라 (다른 설명이나 머리말은 절대 붙이지 말 것):
+CHAMBER=<챔버 영문자 (A, B, C 중 하나)>||VEHICLE=<4자리 차량번호>
+
+규칙:
+- 차량번호는 4자리 숫자만 출력해라 (날짜나 수량 표시는 절대 포함하지 마라).
+- 이미지에 보이는 모든 차량번호를 빠짐없이 출력해라.
+- 챔버 영문자를 이미지에서 찾을 수 없으면 CHAMBER 자리에 "X"라고 적어라.
+- 차량번호를 하나도 찾을 수 없으면 아무 줄도 출력하지 마라.`;
+
 // ---------- parsing ----------
+// The VEHICLE segment is optional in the model's reply (older-style list
+// photos have no 차량번호 column at all), so try the 3-field form first and
+// fall back to the 2-field form rather than failing the whole line.
 function parseListResponse(text) {
   const rows = [];
   text.split('\n').forEach((line) => {
-    const m = line.match(/TOTE\s*=\s*(.*?)\s*\|\|\s*CENTER\s*=\s*(.*)/i);
+    const m3 = line.match(/TOTE\s*=\s*(.*?)\s*\|\|\s*CENTER\s*=\s*(.*?)\s*\|\|\s*VEHICLE\s*=\s*(.*)/i);
+    if (m3) {
+      rows.push({ tote: m3[1].trim(), center: m3[2].trim(), vehicle: m3[3].trim() });
+      return;
+    }
+    const m2 = line.match(/TOTE\s*=\s*(.*?)\s*\|\|\s*CENTER\s*=\s*(.*)/i);
+    if (m2) {
+      rows.push({ tote: m2[1].trim(), center: m2[2].trim(), vehicle: 'X' });
+    }
+  });
+  return rows;
+}
+
+function parseChamberResponse(text) {
+  const rows = [];
+  text.split('\n').forEach((line) => {
+    const m = line.match(/CHAMBER\s*=\s*(.*?)\s*\|\|\s*VEHICLE\s*=\s*(.*)/i);
     if (m) {
-      rows.push({ tote: m[1].trim(), center: m[2].trim() });
+      rows.push({ chamber: m[1].trim(), vehicle: m[2].trim() });
     }
   });
   return rows;
@@ -742,7 +825,7 @@ async function recognizeList() {
       status.className = 'status-line err';
       status.textContent = '행을 인식하지 못했습니다. 사진을 다시 확인해주세요.';
     } else {
-      parsed.forEach(r => listRows.push({ id: rowIdSeq++, tote: r.tote, center: r.center }));
+      parsed.forEach(r => listRows.push({ id: rowIdSeq++, tote: r.tote, center: r.center, vehicle: r.vehicle }));
       status.className = 'status-line ok';
       status.textContent = parsed.length + '개 행 인식 완료';
       renderResults();
@@ -806,6 +889,52 @@ async function recognizeProducts() {
   updateButtonStates();
 }
 
+// ---------- recognize chamber (vehicle location) photos ----------
+// Merges into chamberMap rather than replacing it, so uploading more
+// 차량위치 photos (e.g. A챔, B챔, C챔 separately) accumulates coverage
+// instead of each new batch wiping out the previous one.
+async function recognizeChamber() {
+  if (chamberFiles.length === 0 || !apiKey) return;
+  const status = document.getElementById('chamberStatus');
+  let okCount = 0, failCount = 0;
+
+  for (let i = 0; i < chamberFiles.length; i++) {
+    status.className = 'status-line';
+    status.innerHTML = '<span class="spinner"></span>차량위치 인식 중 (' + (i + 1) + '/' + chamberFiles.length + ')';
+    const statusIcon = document.getElementById('chamberThumbStatus' + i);
+    try {
+      const base64 = await fileToResizedBase64(chamberFiles[i], 1568, 0.92);
+      const text = await callClaudeVision(base64, CHAMBER_PROMPT);
+      const rows = parseChamberResponse(text);
+      if (rows.length === 0) {
+        if (statusIcon) statusIcon.textContent = '❌';
+        failCount++;
+      } else {
+        let anyBad = false;
+        rows.forEach((r) => {
+          if (r.chamber === 'X' || !r.vehicle) { anyBad = true; return; }
+          chamberMap[normStrict(r.vehicle)] = r.chamber.toUpperCase();
+        });
+        if (anyBad) {
+          if (statusIcon) statusIcon.textContent = '⚠️';
+          failCount++;
+        } else {
+          if (statusIcon) statusIcon.textContent = '✅';
+          okCount++;
+        }
+      }
+    } catch (err) {
+      if (statusIcon) statusIcon.textContent = '❌';
+      failCount++;
+    }
+    renderResults();
+  }
+
+  status.className = failCount > 0 ? 'status-line err' : 'status-line ok';
+  status.textContent = '완료: 성공 ' + okCount + '건' + (failCount > 0 ? ', 실패/주의 ' + failCount + '건' : '');
+  updateButtonStates();
+}
+
 
 // ---------- matching ----------
 function normStrict(s) {
@@ -833,6 +962,7 @@ function computeMatches() {
     return {
       tote: row.tote,
       center: row.center,
+      vehicle: row.vehicle,
       sku: match ? match.sku : 'X',
       name: match ? match.name : 'X',
       matched: !!match
@@ -867,7 +997,14 @@ function computeMatches() {
 // position, and repeating the label got noisy once the Overage block
 // started duplicating it right below.
 function buildBlockText(r) {
-  return `${r.tote}\n보내는센터: ${r.center}\n스큐: ${r.sku}\n품명: ${r.name}`;
+  let text = `${r.tote}\n보내는센터: ${r.center}\n스큐: ${r.sku}\n품명: ${r.name}`;
+  if (r.vehicle && normStrict(r.vehicle) !== 'X') {
+    const chamber = chamberMap[normStrict(r.vehicle)];
+    if (chamber) {
+      text += `\n차량번호: ${r.vehicle}-${chamber}`;
+    }
+  }
+  return text;
 }
 
 // When the user hand-corrects a wrong 토트 value (e.g. OCR misread T as 1)
@@ -923,7 +1060,7 @@ function firstLine(text) {
 function buildCopyText(rawValue) {
   return rawValue.split('\n').map((line) => {
     if (/^(Shortage|Overage):/.test(line)) return line;
-    const m = line.match(/^(보내는센터|스큐|품명):\s*(.*)$/);
+    const m = line.match(/^(보내는센터|스큐|품명|차량번호):\s*(.*)$/);
     return m ? m[2] : line;
   }).join('\n');
 }

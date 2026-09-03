@@ -146,6 +146,7 @@
     object-fit: cover;
     border-radius: 8px;
     border: 1px solid var(--border);
+    cursor: pointer;
   }
   .thumb-wrap {
     position: relative;
@@ -485,6 +486,12 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="imageViewerOverlay" style="align-items:center;">
+  <div style="max-width:95vw;max-height:90vh;">
+    <img id="imageViewerImg" style="display:block;max-width:95vw;max-height:90vh;border-radius:10px;">
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script>
 // ---------- state ----------
@@ -598,12 +605,29 @@ document.getElementById('chamberInput').addEventListener('change', (e) => {
   }
 });
 
+// Tapping any uploaded photo's thumbnail re-opens it full-size, so the user
+// can double-check exactly what was recognized against the original photo
+// without having to re-select it from their camera roll.
+function openImageViewer(src) {
+  document.getElementById('imageViewerImg').src = src;
+  document.getElementById('imageViewerOverlay').classList.add('show');
+}
+function closeImageViewer() {
+  document.getElementById('imageViewerOverlay').classList.remove('show');
+}
+document.getElementById('imageViewerOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'imageViewerOverlay') {
+    closeImageViewer();
+  }
+});
+
 function renderListThumb() {
   const wrap = document.getElementById('listThumbs');
   wrap.innerHTML = '';
   if (!listFile) return;
   const img = document.createElement('img');
   img.src = URL.createObjectURL(listFile);
+  img.addEventListener('click', () => openImageViewer(img.src));
   wrap.appendChild(img);
 }
 
@@ -615,6 +639,7 @@ function renderProductThumbs() {
     holder.className = 'thumb-wrap';
     const img = document.createElement('img');
     img.src = URL.createObjectURL(f);
+    img.addEventListener('click', () => openImageViewer(img.src));
     holder.appendChild(img);
     const status = document.createElement('div');
     status.className = 'thumb-status';
@@ -633,6 +658,7 @@ function renderChamberThumbs() {
     holder.className = 'thumb-wrap';
     const img = document.createElement('img');
     img.src = URL.createObjectURL(f);
+    img.addEventListener('click', () => openImageViewer(img.src));
     holder.appendChild(img);
     const status = document.createElement('div');
     status.className = 'thumb-status';
@@ -1008,9 +1034,12 @@ function buildBlockText(r) {
   const vLoose = normLoose(r.vehicle);
   if (vLoose && vLoose !== 'X') {
     const chamber = chamberMap[vLoose];
-    if (chamber) {
-      text += `\n차량번호: ${r.vehicle}-${chamber}`;
-    }
+    // Vehicle number WAS read from the list photo, but no 차량위치 photo
+    // has told us its chamber yet — still show the vehicle number (with a
+    // "(챔버 미확인)" note) rather than silently dropping it, so it's
+    // visible on the card that the list photo has vehicle data at all,
+    // even before/without a chamber photo.
+    text += chamber ? `\n차량번호: ${r.vehicle}-${chamber}` : `\n차량번호: ${r.vehicle} (챔버 미확인)`;
   }
   return text;
 }

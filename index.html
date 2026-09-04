@@ -303,6 +303,12 @@
     color: var(--ok);
     border: 1px solid var(--ok);
   }
+  /* While #resultsWrap.capturing is set (during "전체저장" image export), hide
+     the button rows so the saved image shows just the info, not the controls. */
+  #resultsWrap.capturing .action-row,
+  #resultsWrap.capturing .tag-row {
+    display: none !important;
+  }
   .result-top-actions {
     display: flex;
     gap: 8px;
@@ -451,7 +457,7 @@
       style="width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
     <div class="result-top-actions">
       <button class="btn-secondary" onclick="copyAll()">📋 전체 복사</button>
-      <button class="btn-secondary" onclick="saveAllAsFile()">💾 전체저장</button>
+      <button class="btn-secondary" onclick="saveAllAsFile()">🖼️ 전체저장</button>
       <button class="btn-secondary" onclick="resetAll()">🗑 전체 초기화</button>
     </div>
     <div class="result-top-actions">
@@ -513,6 +519,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 // ---------- state ----------
 let apiKey = localStorage.getItem('toteApiKey') || '';
@@ -540,6 +547,38 @@ let searchQuery = '';
 
 let rowIdSeq = 1;
 let prodIdSeq = 1;
+
+// ---------- persistence ----------
+// The extracted results (listRows/products/chamberMap) are saved to
+// localStorage on every change, so that closing the tab/app or coming back
+// after a while does NOT wipe out already-recognized data — only choosing a
+// new photo or pressing "전체 초기화" clears it. The original photo files
+// themselves are NOT persisted (File objects can't be serialized to
+// localStorage), so thumbnails start empty again after a reload, but the
+// recognized text results are exactly as they were.
+const STORAGE_KEY = 'toteAppData';
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      listRows, products, chamberMap, rowIdSeq, prodIdSeq
+    }));
+  } catch (err) {
+    // localStorage can fail (private browsing, quota) — a save failure
+    // should never break the app; the in-memory data is unaffected either way.
+  }
+}
+function loadPersistedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.listRows)) listRows = data.listRows;
+    if (Array.isArray(data.products)) products = data.products;
+    if (data.chamberMap && typeof data.chamberMap === 'object') chamberMap = data.chamberMap;
+    if (typeof data.rowIdSeq === 'number') rowIdSeq = data.rowIdSeq;
+    if (typeof data.prodIdSeq === 'number') prodIdSeq = data.prodIdSeq;
+  } catch (err) {}
+}
 
 // ---------- settings modal ----------
 function openSettings() {
@@ -1445,6 +1484,7 @@ function autosizeTa(ta) {
 }
 
 function renderResults() {
+  saveState();
   const wrap = document.getElementById('resultsWrap');
   wrap.innerHTML = '';
 
@@ -1603,30 +1643,55 @@ function copyAll() {
   copyText(fullText);
 }
 
-function saveAllAsFile() {
-  // Uses the live textarea values (including labels, so the saved file reads
-  // like the on-screen cards) rather than the label-stripped copy text, since
-  // this is meant as a keepable record/backup of the whole batch, not
-  // something pasted straight into a Teams message.
-  const areas = document.querySelectorAll('#resultsWrap .result-text-main');
-  if (areas.length === 0) {
+async function saveAllAsFile() {
+  // Captures the currently-visible result cards (respecting an active search
+  // filter, same as what's on screen) as a single PNG image, rather than a
+  // plain-text file — so it can be saved to Photos / sent as an image the
+  // same way a manual screenshot would be, but for the whole list at once
+  // even when it's taller than one screen.
+  const wrap = document.getElementById('resultsWrap');
+  const cardCount = wrap.querySelectorAll('.result-card').length;
+  if (cardCount === 0) {
     showToast('저장할 내용이 없습니다');
     return;
   }
-  const fullText = Array.from(areas).map(a => a.value).join('\n\n----------\n\n');
-  const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const fname = `토트결과_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fname;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-  showToast('파일로 저장했어요');
+  if (typeof html2canvas === 'undefined') {
+    showToast('이미지 저장 기능을 불러오지 못했어요. 인터넷 연결을 확인해주세요');
+    return;
+  }
+  showToast('이미지로 저장 중...');
+  // Hide the per-card action/tag button rows for the capture only (see the
+  // #resultsWrap.capturing CSS rule), then restore them right after.
+  wrap.classList.add('capturing');
+  try {
+    const canvas = await html2canvas(wrap, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true
+    });
+    wrap.classList.remove('capturing');
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        showToast('이미지 생성에 실패했어요');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const fname = `토트결과_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.png`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      showToast('이미지로 저장했어요');
+    }, 'image/png');
+  } catch (err) {
+    wrap.classList.remove('capturing');
+    showToast('이미지 저장 중 오류가 발생했어요');
+  }
 }
 
 function copyText(text, btnEl) {
@@ -1680,6 +1745,17 @@ function escapeAttr(s) {
 }
 
 // ---------- init ----------
+loadPersistedState();
+if (listRows.length > 0) {
+  const ls = document.getElementById('listStatus');
+  ls.className = 'status-line ok';
+  ls.textContent = `📂 이전에 저장된 리스트 결과 ${listRows.length}건을 불러왔어요 (사진은 다시 첨부해야 보여요)`;
+}
+if (products.length > 0) {
+  const ps = document.getElementById('productStatus');
+  ps.className = 'status-line ok';
+  ps.textContent = `📂 이전에 저장된 상품정보 ${products.length}건을 불러왔어요`;
+}
 renderResults();
 if (!apiKey) {
   setTimeout(() => { showToast('먼저 ⚙️ 설정에서 API 키를 입력해주세요'); }, 400);

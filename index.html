@@ -432,6 +432,7 @@
     <p class="file-name" id="listFileName"></p>
     <div class="thumbs" id="listThumbs"></div>
     <div class="status-line" id="listStatus"></div>
+    <button class="btn-secondary" id="listRawBtn" style="display:none;margin-top:8px;font-size:12px;padding:7px 10px;" onclick="showListRawResponse()">🔍 인식 원본 텍스트 보기</button>
   </div>
 
   <div class="card">
@@ -496,6 +497,17 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="rawTextOverlay">
+  <div class="modal">
+    <h3>리스트 인식 원본 텍스트</h3>
+    <textarea id="rawTextContent" readonly style="width:100%;min-height:280px;box-sizing:border-box;font-family:monospace;font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);"></textarea>
+    <p class="modal-note">AI가 리스트 사진에서 실제로 읽어낸 원본 결과예요. 어떤 항목이 왜 안 뜨는지 확인할 때 이 화면을 캡처해서 보내주시면 바로 원인을 알 수 있어요.</p>
+    <div class="modal-buttons">
+      <button class="cancel" onclick="closeRawTextOverlay()">닫기</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script>
 // ---------- state ----------
@@ -510,8 +522,15 @@ let productFiles = [];
 let chamberFiles = [];
 // 차량번호(normalized) -> 챔버 영문자, accumulated across every 차량위치
 // photo recognized so far (uploading more chamber photos adds to this,
-// it doesn't replace it — a new LIST photo does reset it, see below).
+// it doesn't replace it). A new LIST photo does NOT reset this — chamber
+// assignments stay valid across multiple list/product batches.
 let chamberMap = {};
+// Raw text the model returned for the most recent list-photo recognition
+// call, kept verbatim (not just the parsed rows) so "🔍 인식 원본 텍스트
+// 보기" can show exactly what was/wasn't extracted per row when a field
+// unexpectedly comes back empty — much more useful for diagnosing a miss
+// than trying to infer it from the rendered card alone.
+let lastListRawText = '';
 
 let rowIdSeq = 1;
 let prodIdSeq = 1;
@@ -563,6 +582,8 @@ document.getElementById('listInput').addEventListener('change', (e) => {
     listRows = [];
     products = [];
     productFiles = [];
+    lastListRawText = '';
+    document.getElementById('listRawBtn').style.display = 'none';
     document.getElementById('productInput').value = '';
     document.getElementById('productFileName').textContent = '';
     document.getElementById('productStatus').textContent = '';
@@ -622,6 +643,20 @@ function closeImageViewer() {
 document.getElementById('imageViewerOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'imageViewerOverlay') {
     closeImageViewer();
+  }
+});
+
+function showListRawResponse() {
+  if (!lastListRawText) return;
+  document.getElementById('rawTextContent').value = lastListRawText;
+  document.getElementById('rawTextOverlay').classList.add('show');
+}
+function closeRawTextOverlay() {
+  document.getElementById('rawTextOverlay').classList.remove('show');
+}
+document.getElementById('rawTextOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'rawTextOverlay') {
+    closeRawTextOverlay();
   }
 });
 
@@ -867,6 +902,8 @@ async function recognizeList() {
     // more detail here noticeably helps avoid character mix-ups like T/1.
     const base64 = await fileToResizedBase64(listFile, 1568, 0.92);
     const text = await callClaudeVision(base64, LIST_PROMPT);
+    lastListRawText = text;
+    document.getElementById('listRawBtn').style.display = '';
     const parsed = parseListResponse(text);
     if (parsed.length === 0) {
       status.className = 'status-line err';

@@ -1288,8 +1288,21 @@ function insertQuickTag(ta, key) {
   autosizeTa(ta);
 }
 
-// Builds the Shortage / Overage quick-tag row shown under the main action
-// row on matched result cards.
+// Removes one row from listRows (a matched or mismatched section-4 card,
+// identified by its data-row-id) and re-renders. Unlike the unmatched-
+// product 삭제 button (which drops a leftover 상품정보 entry), this drops
+// the list row itself — useful for a duplicate/unwanted tote entry once
+// it's already showing as a full result card.
+function deleteListRow(rowId) {
+  const idx = listRows.findIndex(r => String(r.id) === String(rowId));
+  if (idx === -1) return;
+  listRows.splice(idx, 1);
+  renderResults();
+  showToast('삭제했어요');
+}
+
+// Builds the Shortage / Overage / 삭제 quick-tag row shown under the main
+// action row on matched result cards.
 function buildTagRow(ta) {
   const row = document.createElement('div');
   row.className = 'tag-row';
@@ -1304,8 +1317,14 @@ function buildTagRow(ta) {
   overageBtn.textContent = 'Overage';
   overageBtn.addEventListener('click', () => insertQuickTag(ta, 'overage'));
 
+  const delBtn = document.createElement('button');
+  delBtn.className = 'delete-btn';
+  delBtn.textContent = '삭제';
+  delBtn.addEventListener('click', () => deleteListRow(ta.dataset.rowId));
+
   row.appendChild(shortageBtn);
   row.appendChild(overageBtn);
+  row.appendChild(delBtn);
   return row;
 }
 

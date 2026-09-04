@@ -491,10 +491,11 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="imageViewerOverlay" style="align-items:center;">
-  <div style="max-width:95vw;max-height:90vh;">
-    <img id="imageViewerImg" style="display:block;max-width:95vw;max-height:90vh;border-radius:10px;">
+<div class="modal-overlay" id="imageViewerOverlay" style="align-items:center;overflow:hidden;touch-action:none;">
+  <div style="max-width:95vw;max-height:90vh;overflow:hidden;">
+    <img id="imageViewerImg" style="display:block;max-width:95vw;max-height:90vh;border-radius:10px;touch-action:none;">
   </div>
+  <p class="modal-note" style="position:absolute;bottom:14px;left:0;right:0;text-align:center;color:white;pointer-events:none;">두 손가락으로 확대/축소 · 더블탭으로 확대 · 바깥을 누르면 닫혀요</p>
 </div>
 
 <div class="modal-overlay" id="rawTextOverlay">
@@ -632,18 +633,111 @@ document.getElementById('chamberInput').addEventListener('change', (e) => {
 
 // Tapping any uploaded photo's thumbnail re-opens it full-size, so the user
 // can double-check exactly what was recognized against the original photo
-// without having to re-select it from their camera roll.
+// without having to re-select it from their camera roll. Dense table/
+// chamber-diagram photos still need further magnification once open (small
+// print, tiny cells), so the viewer also supports pinch-to-zoom, one-finger
+// pan once zoomed in, and double-tap to toggle zoom — implemented with
+// Pointer Events (unifies touch + mouse) rather than a library, since it's
+// just scale/translate on one <img>.
+let viewerScale = 1;
+let viewerTranslateX = 0;
+let viewerTranslateY = 0;
+const viewerPointers = new Map(); // pointerId -> {x, y}
+let viewerPinchStartDist = 0;
+let viewerPinchStartScale = 1;
+let viewerPanStart = null; // {x, y, tx, ty}
+const VIEWER_MAX_SCALE = 4;
+const VIEWER_MIN_SCALE = 1;
+
+function applyViewerTransform() {
+  document.getElementById('imageViewerImg').style.transform =
+    `translate(${viewerTranslateX}px, ${viewerTranslateY}px) scale(${viewerScale})`;
+}
+
+function resetViewerZoom() {
+  viewerScale = 1;
+  viewerTranslateX = 0;
+  viewerTranslateY = 0;
+  viewerPointers.clear();
+  viewerPinchStartDist = 0;
+  viewerPanStart = null;
+  applyViewerTransform();
+}
+
 function openImageViewer(src) {
   document.getElementById('imageViewerImg').src = src;
+  resetViewerZoom();
   document.getElementById('imageViewerOverlay').classList.add('show');
 }
 function closeImageViewer() {
   document.getElementById('imageViewerOverlay').classList.remove('show');
+  resetViewerZoom();
 }
 document.getElementById('imageViewerOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'imageViewerOverlay') {
     closeImageViewer();
   }
+});
+
+const viewerImgEl = document.getElementById('imageViewerImg');
+viewerImgEl.addEventListener('pointerdown', (e) => {
+  viewerPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  // Capture keeps this pointer's move/up events routed here even if the
+  // finger slides outside the <img>'s bounds mid-gesture. Wrapped in
+  // try/catch since a browser can refuse capture for a pointerId it
+  // doesn't consider currently active — that's just a minor smoothness
+  // loss, not a reason to abort the whole gesture.
+  try { viewerImgEl.setPointerCapture(e.pointerId); } catch (err) {}
+  if (viewerPointers.size === 2) {
+    const pts = Array.from(viewerPointers.values());
+    viewerPinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    viewerPinchStartScale = viewerScale;
+    viewerPanStart = null; // two fingers down mid-drag shouldn't also pan
+  } else if (viewerPointers.size === 1 && viewerScale > 1) {
+    viewerPanStart = { x: e.clientX, y: e.clientY, tx: viewerTranslateX, ty: viewerTranslateY };
+  }
+});
+viewerImgEl.addEventListener('pointermove', (e) => {
+  if (!viewerPointers.has(e.pointerId)) return;
+  viewerPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (viewerPointers.size === 2 && viewerPinchStartDist > 0) {
+    const pts = Array.from(viewerPointers.values());
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    viewerScale = Math.min(VIEWER_MAX_SCALE, Math.max(VIEWER_MIN_SCALE, viewerPinchStartScale * (dist / viewerPinchStartDist)));
+    applyViewerTransform();
+  } else if (viewerPointers.size === 1 && viewerPanStart) {
+    viewerTranslateX = viewerPanStart.tx + (e.clientX - viewerPanStart.x);
+    viewerTranslateY = viewerPanStart.ty + (e.clientY - viewerPanStart.y);
+    applyViewerTransform();
+  }
+});
+function endViewerPointer(e) {
+  viewerPointers.delete(e.pointerId);
+  if (viewerPointers.size < 2) viewerPinchStartDist = 0;
+  if (viewerPointers.size === 0) {
+    viewerPanStart = null;
+    if (viewerScale <= 1) {
+      viewerScale = 1;
+      viewerTranslateX = 0;
+      viewerTranslateY = 0;
+      applyViewerTransform();
+    }
+  }
+}
+viewerImgEl.addEventListener('pointerup', endViewerPointer);
+viewerImgEl.addEventListener('pointercancel', endViewerPointer);
+// Double-tap/double-click toggles between fit-to-screen and a fixed zoom-in
+// level, which covers the common "just let me read this one cell" case
+// without needing a precise pinch gesture.
+viewerImgEl.addEventListener('dblclick', () => {
+  if (viewerScale > 1) {
+    viewerScale = 1;
+    viewerTranslateX = 0;
+    viewerTranslateY = 0;
+  } else {
+    viewerScale = 2.5;
+  }
+  applyViewerTransform();
 });
 
 function showListRawResponse() {

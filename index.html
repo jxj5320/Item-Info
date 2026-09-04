@@ -451,6 +451,7 @@
       style="width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
     <div class="result-top-actions">
       <button class="btn-secondary" onclick="copyAll()">📋 전체 복사</button>
+      <button class="btn-secondary" onclick="saveAllAsFile()">💾 전체저장</button>
       <button class="btn-secondary" onclick="resetAll()">🗑 전체 초기화</button>
     </div>
     <div class="result-top-actions">
@@ -1600,6 +1601,32 @@ function copyAll() {
   }
   const fullText = Array.from(areas).map(a => buildCopyText(a.value)).join('\n\n');
   copyText(fullText);
+}
+
+function saveAllAsFile() {
+  // Uses the live textarea values (including labels, so the saved file reads
+  // like the on-screen cards) rather than the label-stripped copy text, since
+  // this is meant as a keepable record/backup of the whole batch, not
+  // something pasted straight into a Teams message.
+  const areas = document.querySelectorAll('#resultsWrap .result-text-main');
+  if (areas.length === 0) {
+    showToast('저장할 내용이 없습니다');
+    return;
+  }
+  const fullText = Array.from(areas).map(a => a.value).join('\n\n----------\n\n');
+  const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const fname = `토트결과_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  showToast('파일로 저장했어요');
 }
 
 function copyText(text, btnEl) {

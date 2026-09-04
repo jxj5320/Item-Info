@@ -447,6 +447,8 @@
 
   <div class="card">
     <h2><span class="badge">4</span> 결과 (팀즈용 텍스트)</h2>
+    <input type="search" id="searchInput" placeholder="🔍 토트/센터/스큐/품명/수량/CT/차량번호 검색" enterkeyhint="search"
+      style="width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
     <div class="result-top-actions">
       <button class="btn-secondary" onclick="copyAll()">📋 전체 복사</button>
       <button class="btn-secondary" onclick="resetAll()">🗑 전체 초기화</button>
@@ -532,6 +534,8 @@ let chamberMap = {};
 // unexpectedly comes back empty — much more useful for diagnosing a miss
 // than trying to infer it from the rendered card alone.
 let lastListRawText = '';
+// Live filter text for the section-4 search box — see renderResults().
+let searchQuery = '';
 
 let rowIdSeq = 1;
 let prodIdSeq = 1;
@@ -584,6 +588,8 @@ document.getElementById('listInput').addEventListener('change', (e) => {
     products = [];
     productFiles = [];
     lastListRawText = '';
+    searchQuery = '';
+    document.getElementById('searchInput').value = '';
     document.getElementById('listRawBtn').style.display = 'none';
     document.getElementById('productInput').value = '';
     document.getElementById('productFileName').textContent = '';
@@ -629,6 +635,11 @@ document.getElementById('chamberInput').addEventListener('change', (e) => {
       showToast('먼저 ⚙️ 설정에서 API 키를 입력해주세요');
     }
   }
+});
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  searchQuery = e.target.value;
+  renderResults();
 });
 
 // Tapping any uploaded photo's thumbnail re-opens it full-size, so the user
@@ -1147,6 +1158,7 @@ function computeMatches() {
     // photos have their own 상품명 column) rather than showing X.
     const listName = row.name && row.name !== 'X' ? row.name : '';
     return {
+      id: row.id,
       tote: row.tote,
       center: row.center,
       vehicle: row.vehicle,
@@ -1442,7 +1454,17 @@ function renderResults() {
 
   const { results, unmatchedProducts } = computeMatches();
 
-  results.forEach((r, idx) => {
+  // Live search: typing in #searchInput filters which cards are shown,
+  // matched against the full rendered block text (so it catches tote,
+  // center, sku, name, qty, ct and vehicle all at once) rather than one
+  // field at a time. Filtering here (not by hiding DOM nodes) means the
+  // rest of this function — and every dataset.rowId/productId it wires up
+  // below — only ever has to deal with the rows actually being shown.
+  const q = searchQuery.trim().toLowerCase();
+  const visibleResults = q ? results.filter(r => buildBlockText(r).toLowerCase().includes(q)) : results;
+  const visibleUnmatched = q ? unmatchedProducts.filter(p => `${p.tote} ${p.sku} ${p.name}`.toLowerCase().includes(q)) : unmatchedProducts;
+
+  visibleResults.forEach((r) => {
     const div = document.createElement('div');
     div.className = 'result-card' + (r.matched ? '' : ' mismatch');
     const text = buildBlockText(r);
@@ -1455,7 +1477,7 @@ function renderResults() {
     ta.rows = 4;
     ta.value = text;
     ta.spellcheck = false;
-    ta.dataset.rowId = String(listRows[idx].id);
+    ta.dataset.rowId = String(r.id);
     ta.addEventListener('change', () => handleToteEdit(ta, 'row'));
     ta.addEventListener('input', () => autosizeTa(ta));
 
@@ -1465,7 +1487,14 @@ function renderResults() {
     wrap.appendChild(div);
   });
 
-  if (unmatchedProducts.length > 0) {
+  if (q && visibleResults.length === 0 && visibleUnmatched.length === 0) {
+    const noMatch = document.createElement('p');
+    noMatch.className = 'empty-msg';
+    noMatch.textContent = '검색 결과가 없습니다.';
+    wrap.appendChild(noMatch);
+  }
+
+  if (visibleUnmatched.length > 0) {
     const warnDiv = document.createElement('div');
     warnDiv.className = 'result-card mismatch';
 
@@ -1476,7 +1505,7 @@ function renderResults() {
     label.textContent = '⚠ 리스트의 토트와 매칭되지 않은 상품정보';
     warnDiv.appendChild(label);
 
-    unmatchedProducts.forEach(p => {
+    visibleUnmatched.forEach(p => {
       const text = `${p.tote}\n스큐: ${p.sku}\n품명: ${p.name}`;
 
       const ta = document.createElement('textarea');
@@ -1599,6 +1628,8 @@ function resetAll() {
   products = [];
   listFile = null;
   productFiles = [];
+  searchQuery = '';
+  document.getElementById('searchInput').value = '';
   document.getElementById('listInput').value = '';
   document.getElementById('productInput').value = '';
   document.getElementById('listStatus').textContent = '';

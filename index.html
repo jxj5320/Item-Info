@@ -1090,6 +1090,9 @@ function buildBlockText(r) {
   if (r.qty && r.qty !== 'X') {
     text += `\n수량: ${r.qty}`;
   }
+  if (r.ct && r.ct !== 'X') {
+    text += `\nCT: ${r.ct}`;
+  }
   const vLoose = normLoose(r.vehicle);
   if (vLoose && vLoose !== 'X') {
     const chamber = chamberMap[vLoose];
@@ -1156,7 +1159,7 @@ function firstLine(text) {
 function buildCopyText(rawValue) {
   return rawValue.split('\n').map((line) => {
     if (/^(Shortage|Overage):/.test(line)) return line;
-    const m = line.match(/^(보내는센터|스큐|품명|차량번호|수량):\s*(.*)$/);
+    const m = line.match(/^(보내는센터|스큐|품명|차량번호|수량|CT):\s*(.*)$/);
     return m ? m[2] : line;
   }).join('\n');
 }

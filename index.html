@@ -540,7 +540,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-6';
+const APP_VERSION = '2026-09-05-8';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -985,17 +985,21 @@ TOTE=<토트 바코드 값>||SKU=<스큐 값>||NAME=<상품명 값>
 - 표에 "수량", "QTY", "From FC", "컨테이너 바코드", "차량번호" 같은 다른 컬럼이 있어도 전부 무시해라 — 토트 바코드와 상품명(그리고 있다면 스큐)만 사용한다.
 - 위 항목 중 화면에서 찾을 수 없는 값이 있으면 그 자리에 정확히 "X"라고만 적어라.`;
 
-const CHAMBER_PROMPT = `다음 이미지는 냉동/냉장 창고의 챔버(구역) 배치도 사진이다. 이미지 좌상단이나 제목 부분에 "A챔버", "B챔버", "C챔버"처럼 챔버를 나타내는 영문자가 포함된 라벨이 있다 (예: "FROZEN B챔버" → 챔버는 B).
+const CHAMBER_PROMPT = `다음 이미지는 창고 차량 배치/일정 관련 사진이다. 화면은 아래 두 가지 형태 중 하나로 나타날 수 있다.
 
-배치도 안에는 여러 개의 말풍선/카드 모양 표시가 있고, 각 표시에는 날짜(예: 09/03), 4자리 숫자로 된 차량번호, 그리고 수량 표시(예: 7p, 1sku)가 함께 적혀 있다.
+(형태 1) 냉동/냉장 창고의 챔버(구역) 배치도: 이미지 좌상단이나 제목 부분에 "A챔버", "B챔버", "C챔버"처럼 챔버를 나타내는 영문자가 포함된 라벨이 있다 (예: "FROZEN B챔버" → 챔버는 B). 배치도 안에는 여러 개의 말풍선/카드 모양 표시가 있고, 각 표시에는 날짜(예: 09/03), 4자리 숫자로 된 차량번호, 그리고 수량 표시(예: 7p, 1sku)가 함께 적혀 있다.
 
-이미지에 보이는 각 차량번호에 대해, 정확히 아래 형식으로 한 줄씩만 출력해라 (다른 설명이나 머리말은 절대 붙이지 말 것):
-CHAMBER=<챔버 영문자 (A, B, C 중 하나)>||VEHICLE=<4자리 차량번호>
+(형태 2) 달력/스케줄 형태의 화면: 달력 그리드 형태이고, 각 항목(카드)에는 초록색 원 안에 순서를 나타내는 숫자, 날짜(예: 09/04), 4자리 차량번호, 수량 표시(예: 10p)가 함께 나타난다. 이 형태에는 챔버를 나타내는 영문자 라벨이 없을 수 있다.
+
+이미지에 보이는 각 차량번호 항목에 대해, 정확히 아래 형식으로 한 줄씩만 출력해라 (다른 설명이나 머리말은 절대 붙이지 말 것):
+CHAMBER=<챔버 영문자 (A, B, C 중 하나). 형태 2처럼 챔버 라벨이 없으면 X>||VEHICLE=<4자리 차량번호>||DATE=<날짜를 M/D 형식으로, 앞자리 0은 빼고 적어라 (예: 09/04 → 9/4). 날짜가 없으면 X>||ORDER=<초록색 원 안에 있는 순서 숫자. 형태 1처럼 순서 숫자가 없으면 X>
 
 규칙:
 - 차량번호는 4자리 숫자만 출력해라 (날짜나 수량 표시는 절대 포함하지 마라).
-- 이미지에 보이는 모든 차량번호를 빠짐없이 출력해라.
-- 챔버 영문자를 이미지에서 찾을 수 없으면 CHAMBER 자리에 "X"라고 적어라.
+- 순서 숫자는 반드시 초록색 원 안의 숫자만 사용해라 — 수량 표시(예: 10p, 7p)를 순서 숫자로 착각하지 마라.
+- 날짜는 월/일을 슬래시(/)로 구분하고 앞자리 0은 빼고 적어라 (09/04 → 9/4, 9/04 → 9/4).
+- 이미지에 보이는 모든 차량번호 항목을 빠짐없이 출력해라.
+- 각 값(CHAMBER/DATE/ORDER)을 이미지에서 찾을 수 없으면 그 자리에 정확히 "X"라고 적어라.
 - 차량번호를 하나도 찾을 수 없으면 아무 줄도 출력하지 마라.`;
 
 // ---------- parsing ----------
@@ -1028,13 +1032,27 @@ function parseListResponse(text) {
   return rows;
 }
 
+// Generic KEY=value segment parser (same approach as parseListResponse):
+// each line is split on "||" and each segment matched independently, so
+// older/shorter response shapes (e.g. just CHAMBER/VEHICLE, from before
+// DATE/ORDER existed) still parse correctly, and any field the model
+// omits just comes back as 'X' instead of failing the whole line.
 function parseChamberResponse(text) {
   const rows = [];
   text.split('\n').forEach((line) => {
-    const m = line.match(/CHAMBER\s*=\s*(.*?)\s*\|\|\s*VEHICLE\s*=\s*(.*)/i);
-    if (m) {
-      rows.push({ chamber: m[1].trim(), vehicle: m[2].trim() });
-    }
+    if (!/VEHICLE\s*=/i.test(line)) return;
+    const fields = {};
+    line.split('||').forEach((seg) => {
+      const m = seg.match(/^\s*([A-Za-z]+)\s*=\s*(.*?)\s*$/);
+      if (m) fields[m[1].toUpperCase()] = m[2].trim();
+    });
+    if (!fields.VEHICLE) return;
+    rows.push({
+      chamber: fields.CHAMBER || 'X',
+      vehicle: fields.VEHICLE,
+      date: fields.DATE || 'X',
+      order: fields.ORDER || 'X'
+    });
   });
   return rows;
 }
@@ -1160,12 +1178,26 @@ async function recognizeChamber() {
       } else {
         let anyBad = false;
         rows.forEach((r) => {
-          if (r.chamber === 'X' || !r.vehicle) { anyBad = true; return; }
+          if (!r.vehicle) { anyBad = true; return; }
           // Keyed by normLoose (strips everything but letters/digits), not
           // normStrict, so a stray suffix or punctuation the model adds to
           // one side (e.g. "9416" vs "9416번" vs "9416-B") doesn't break the
           // lookup against the list photo's 차량번호 value.
-          chamberMap[normLoose(r.vehicle)] = r.chamber.toUpperCase();
+          //
+          // Stored as an object (not just a chamber letter) and MERGED with
+          // whatever's already there for this vehicle, since chamber
+          // (형태 1 배치도) and date/order (형태 2 달력) can come from
+          // different photos for the same vehicle — one photo filling in
+          // 챔버 shouldn't erase a date/order learned from another, and
+          // vice versa.
+          const key = normLoose(r.vehicle);
+          const merged = { ...(chamberMap[key] || {}) };
+          if (r.chamber && r.chamber !== 'X') merged.chamber = r.chamber.toUpperCase();
+          if (r.date && r.date !== 'X') merged.date = r.date;
+          if (r.order && r.order !== 'X') merged.order = r.order;
+          chamberMap[key] = merged;
+          const gotNothing = (!r.chamber || r.chamber === 'X') && (!r.date || r.date === 'X') && (!r.order || r.order === 'X');
+          if (gotNothing) anyBad = true;
         });
         if (anyBad) {
           if (statusIcon) statusIcon.textContent = '⚠️';
@@ -1297,13 +1329,21 @@ function buildBlockText(r) {
   }
   const vLoose = normLoose(r.vehicle);
   if (vLoose && vLoose !== 'X') {
-    const chamber = chamberMap[vLoose];
-    // Vehicle number WAS read from the list photo, but no 차량위치 photo
-    // has told us its chamber yet — still show the vehicle number (with a
-    // "(챔버 미확인)" note) rather than silently dropping it, so it's
-    // visible on the card that the list photo has vehicle data at all,
-    // even before/without a chamber photo.
-    text += chamber ? `\n차량번호: ${r.vehicle}-${chamber}` : `\n차량번호: ${r.vehicle} (챔버 미확인)`;
+    const info = chamberMap[vLoose];
+    if (info && (info.chamber || info.date || info.order)) {
+      // "차량번호, 날짜, 순서번, 챔버" 형식 — 배치도(형태 1)에서만 온
+      // 챔버-only 정보든, 달력(형태 2)에서만 온 날짜/순서든, 둘 다 합쳐진
+      // 경우든 항상 이 하나의 형식으로 통일한다. 아직 모르는 자리는 값만
+      // 비우고 쉼표는 그대로 남겨서, 나중에 다른 차량위치 사진으로 채워질
+      // 자리라는 걸 알아볼 수 있게 한다.
+      const orderPart = info.order ? `${info.order}번` : '';
+      text += `\n차량번호: ${r.vehicle}, ${info.date || ''}, ${orderPart}, ${info.chamber || ''}`;
+    } else {
+      // Vehicle number WAS read from the list photo, but no 차량위치 photo
+      // has told us anything about it yet — still show the vehicle number
+      // (with a "(챔버 미확인)" note) rather than silently dropping it.
+      text += `\n차량번호: ${r.vehicle} (챔버 미확인)`;
+    }
   }
   return text;
 }

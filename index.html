@@ -1340,21 +1340,31 @@ function buildCopyText(rawValue) {
   }).join('\n');
 }
 
-// Fixed quick-access barcode: this value never changes card to card (it's
-// always the same location/pallet code, not derived from the tote's own
-// data), so its button sits as its own row between the copy/barcode row and
-// the Shortage/Overage row rather than being wired up per-card like the
-// tote/sku barcode buttons.
-const PRB0_BARCODE_VALUE = '145-PRB0-1-2';
-function buildPrb0Row() {
-  const row = document.createElement('div');
-  row.className = 'action-row';
-  const btn = document.createElement('button');
-  btn.className = 'barcode-btn';
-  btn.textContent = 'PRB0';
-  btn.addEventListener('click', () => openBarcodeModal('PRB0', PRB0_BARCODE_VALUE));
-  row.appendChild(btn);
-  return row;
+// Fixed quick-access barcodes: these values never change card to card
+// (they're always the same location/pallet codes, not derived from the
+// tote's own data), so their buttons sit as their own rows between the
+// copy/barcode row and the Shortage/Overage row rather than being wired up
+// per-card like the tote/sku barcode buttons. Add more entries here to add
+// more fixed-barcode buttons — each becomes its own full-width row, in order.
+const FIXED_BARCODES = [
+  { label: 'PRB0', value: '145-PRB0-1-2' },
+  { label: '냉장(토재)', value: '145-RCRT9-1-738' },
+  { label: '상온(토재)', value: '145-RCRT9-2-2' },
+  { label: '냉동(토재)', value: '145-RCRT9-3-240' }
+];
+function buildFixedBarcodeRows() {
+  const frag = document.createDocumentFragment();
+  FIXED_BARCODES.forEach(({ label, value }) => {
+    const row = document.createElement('div');
+    row.className = 'action-row';
+    const btn = document.createElement('button');
+    btn.className = 'barcode-btn';
+    btn.textContent = label;
+    btn.addEventListener('click', () => openBarcodeModal(label, value));
+    row.appendChild(btn);
+    frag.appendChild(row);
+  });
+  return frag;
 }
 
 function buildActionRow(ta, onDelete) {
@@ -1534,7 +1544,7 @@ function renderResults() {
 
     div.appendChild(ta);
     div.appendChild(buildActionRow(ta));
-    div.appendChild(buildPrb0Row());
+    div.appendChild(buildFixedBarcodeRows());
     div.appendChild(buildTagRow(ta));
     wrap.appendChild(div);
   });

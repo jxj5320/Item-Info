@@ -326,6 +326,53 @@
     width: 100%;
     box-sizing: border-box;
   }
+  /* Floating quick-access button for the fixed barcodes (PRB0/냉장/상온/냉동):
+     fixed to the viewport (not inside #resultsWrap's scroll flow), so it
+     stays reachable no matter how far down a long result list is scrolled —
+     no more scrolling back up to the section-4 header just to scan one of
+     these. */
+  .fab-btn {
+    position: fixed;
+    right: 18px;
+    bottom: 22px;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: var(--blue);
+    color: white;
+    border: none;
+    font-size: 22px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .fab-btn:active {
+    background: var(--blue-dark);
+  }
+  .fab-panel {
+    position: fixed;
+    right: 18px;
+    bottom: 84px;
+    z-index: 60;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    min-width: 160px;
+  }
+  .fab-panel.show {
+    display: flex;
+  }
+  .fab-panel button {
+    width: 100%;
+    box-sizing: border-box;
+  }
   .fail-tag {
     color: var(--danger);
     font-weight: 600;
@@ -483,6 +530,9 @@
 
 </main>
 
+<div class="fab-panel" id="fabPanel"></div>
+<button class="fab-btn" id="fabBtn" onclick="toggleFixedBarcodeFab()">🏷️</button>
+
 <div id="toast"></div>
 
 <div class="modal-overlay" id="settingsOverlay">
@@ -541,7 +591,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-11';
+const APP_VERSION = '2026-09-05-12';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1445,16 +1495,43 @@ const FIXED_BARCODES = [
   { label: '냉동(토재)', value: '145-RCRT9-3-240' }
 ];
 function renderFixedBarcodeButtons() {
-  const grid = document.getElementById('fixedBarcodeGrid');
-  grid.innerHTML = '';
+  fillFixedBarcodeButtons(document.getElementById('fixedBarcodeGrid'));
+  fillFixedBarcodeButtons(document.getElementById('fabPanel'), () => closeFixedBarcodeFab());
+}
+// Shared builder so the header grid and the floating FAB panel (see
+// toggleFixedBarcodeFab) stay in sync from the one FIXED_BARCODES list
+// instead of duplicating the button markup/handlers in two places.
+function fillFixedBarcodeButtons(container, afterClick) {
+  container.innerHTML = '';
   FIXED_BARCODES.forEach(({ label, value }) => {
     const btn = document.createElement('button');
     btn.className = 'btn-secondary';
     btn.textContent = label;
-    btn.addEventListener('click', () => openBarcodeModal(label, value));
-    grid.appendChild(btn);
+    btn.addEventListener('click', () => {
+      openBarcodeModal(label, value);
+      if (afterClick) afterClick();
+    });
+    container.appendChild(btn);
   });
 }
+
+// ---------- floating quick-access button ----------
+function toggleFixedBarcodeFab() {
+  document.getElementById('fabPanel').classList.toggle('show');
+}
+function closeFixedBarcodeFab() {
+  document.getElementById('fabPanel').classList.remove('show');
+}
+// Tapping anywhere outside the open panel (and not on the FAB button
+// itself, which has its own toggle) closes it — same "tap outside to
+// dismiss" pattern used by the other overlays in this app.
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('fabPanel');
+  const fab = document.getElementById('fabBtn');
+  if (!panel.classList.contains('show')) return;
+  if (panel.contains(e.target) || fab.contains(e.target)) return;
+  closeFixedBarcodeFab();
+});
 
 function buildActionRow(ta, onDelete) {
   const row = document.createElement('div');

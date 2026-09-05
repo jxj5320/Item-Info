@@ -45,6 +45,11 @@
     margin: 0;
     font-weight: 700;
   }
+  .build-tag {
+    font-size: 10.5px;
+    opacity: 0.75;
+    margin-top: 2px;
+  }
   header .icon-btn {
     background: rgba(255,255,255,0.15);
     border: none;
@@ -311,6 +316,16 @@
   .result-top-actions button {
     flex: 1;
   }
+  .fixed-barcode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .fixed-barcode-grid button {
+    width: 100%;
+    box-sizing: border-box;
+  }
   .fail-tag {
     color: var(--danger);
     font-weight: 600;
@@ -408,7 +423,10 @@
 <body>
 
 <header>
-  <h1>토트 상품정보 추출기</h1>
+  <div>
+    <h1>토트 상품정보 추출기</h1>
+    <div class="build-tag" id="buildTag"></div>
+  </div>
   <button class="icon-btn" onclick="openSettings()">⚙️</button>
 </header>
 
@@ -458,6 +476,7 @@
       <button class="btn-secondary" onclick="sortByQty()">🔢 수량정렬</button>
       <button class="btn-secondary" onclick="sortByCt()">📦 CT정렬</button>
     </div>
+    <div class="fixed-barcode-grid" id="fixedBarcodeGrid"></div>
     <div id="resultsWrap"></div>
   </div>
 
@@ -515,6 +534,13 @@
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script>
 // ---------- state ----------
+// Bumped every time an updated file is delivered, so the user can check
+// this on-screen tag against what they were told was just shipped and
+// confirm they actually uploaded/opened the newest version — this app is
+// re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
+// so "I uploaded it but nothing changed" is usually a stale-file mix-up
+// rather than a real bug, and this tag makes that checkable at a glance.
+const APP_VERSION = '2026-09-05-6';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1341,30 +1367,26 @@ function buildCopyText(rawValue) {
 }
 
 // Fixed quick-access barcodes: these values never change card to card
-// (they're always the same location/pallet codes, not derived from the
-// tote's own data), so their buttons sit as their own rows between the
-// copy/barcode row and the Shortage/Overage row rather than being wired up
-// per-card like the tote/sku barcode buttons. Add more entries here to add
-// more fixed-barcode buttons — each becomes its own full-width row, in order.
+// (they're always the same location/pallet codes, not derived from any
+// tote's own data), so they live once in the section-4 header (below
+// 수량정렬/CT정렬), not repeated on every single result card. Add more
+// entries here to add more fixed-barcode buttons, 2 per row.
 const FIXED_BARCODES = [
   { label: 'PRB0', value: '145-PRB0-1-2' },
   { label: '냉장(토재)', value: '145-RCRT9-1-738' },
   { label: '상온(토재)', value: '145-RCRT9-2-2' },
   { label: '냉동(토재)', value: '145-RCRT9-3-240' }
 ];
-function buildFixedBarcodeRows() {
-  const frag = document.createDocumentFragment();
+function renderFixedBarcodeButtons() {
+  const grid = document.getElementById('fixedBarcodeGrid');
+  grid.innerHTML = '';
   FIXED_BARCODES.forEach(({ label, value }) => {
-    const row = document.createElement('div');
-    row.className = 'action-row';
     const btn = document.createElement('button');
-    btn.className = 'barcode-btn';
+    btn.className = 'btn-secondary';
     btn.textContent = label;
     btn.addEventListener('click', () => openBarcodeModal(label, value));
-    row.appendChild(btn);
-    frag.appendChild(row);
+    grid.appendChild(btn);
   });
-  return frag;
 }
 
 function buildActionRow(ta, onDelete) {
@@ -1544,7 +1566,6 @@ function renderResults() {
 
     div.appendChild(ta);
     div.appendChild(buildActionRow(ta));
-    div.appendChild(buildFixedBarcodeRows());
     div.appendChild(buildTagRow(ta));
     wrap.appendChild(div);
   });
@@ -1887,6 +1908,8 @@ function escapeAttr(s) {
 }
 
 // ---------- init ----------
+document.getElementById('buildTag').textContent = 'v' + APP_VERSION;
+renderFixedBarcodeButtons();
 loadPersistedState();
 if (listRows.length > 0) {
   const ls = document.getElementById('listStatus');

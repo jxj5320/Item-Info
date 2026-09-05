@@ -303,12 +303,6 @@
     color: var(--ok);
     border: 1px solid var(--ok);
   }
-  /* While #resultsWrap.capturing is set (during "전체저장" image export), hide
-     the button rows so the saved image shows just the info, not the controls. */
-  #resultsWrap.capturing .action-row,
-  #resultsWrap.capturing .tag-row {
-    display: none !important;
-  }
   .result-top-actions {
     display: flex;
     gap: 8px;
@@ -519,7 +513,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 // ---------- state ----------
 let apiKey = localStorage.getItem('toteApiKey') || '';
@@ -1347,6 +1340,23 @@ function buildCopyText(rawValue) {
   }).join('\n');
 }
 
+// Fixed quick-access barcode: this value never changes card to card (it's
+// always the same location/pallet code, not derived from the tote's own
+// data), so its button sits as its own row between the copy/barcode row and
+// the Shortage/Overage row rather than being wired up per-card like the
+// tote/sku barcode buttons.
+const PRB0_BARCODE_VALUE = '145-PRB0-1-2';
+function buildPrb0Row() {
+  const row = document.createElement('div');
+  row.className = 'action-row';
+  const btn = document.createElement('button');
+  btn.className = 'barcode-btn';
+  btn.textContent = 'PRB0';
+  btn.addEventListener('click', () => openBarcodeModal('PRB0', PRB0_BARCODE_VALUE));
+  row.appendChild(btn);
+  return row;
+}
+
 function buildActionRow(ta, onDelete) {
   const row = document.createElement('div');
   row.className = 'action-row';
@@ -1524,6 +1534,7 @@ function renderResults() {
 
     div.appendChild(ta);
     div.appendChild(buildActionRow(ta));
+    div.appendChild(buildPrb0Row());
     div.appendChild(buildTagRow(ta));
     wrap.appendChild(div);
   });
@@ -1643,55 +1654,176 @@ function copyAll() {
   copyText(fullText);
 }
 
-async function saveAllAsFile() {
-  // Captures the currently-visible result cards (respecting an active search
-  // filter, same as what's on screen) as a single PNG image, rather than a
-  // plain-text file — so it can be saved to Photos / sent as an image the
-  // same way a manual screenshot would be, but for the whole list at once
-  // even when it's taller than one screen.
-  const wrap = document.getElementById('resultsWrap');
-  const cardCount = wrap.querySelectorAll('.result-card').length;
-  if (cardCount === 0) {
+// ---------- save-all-as-image ----------
+// Draws the currently-visible result cards (respecting an active search
+// filter, same as what's on screen) directly onto a <canvas> and downloads
+// it as a single PNG — one image with every tote's info stacked in it, the
+// same way a long screenshot would look, but not cut off by the screen
+// height. This draws the text itself rather than photographing the live DOM
+// (e.g. via html2canvas), because canvas-cloning libraries are known to
+// mis-render <textarea> content (newlines collapse, text overflows its box)
+// — drawing manually avoids that entirely and needs no external library.
+const SAVE_IMG_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif';
+const SAVE_IMG_WIDTH = 640;
+const SAVE_IMG_OUTER_PAD = 20;
+const SAVE_IMG_CARD_PAD = 14;
+const SAVE_IMG_INNER_PAD = 14;
+const SAVE_IMG_LINE_HEIGHT = 26;
+const SAVE_IMG_FONT_SIZE = 17;
+const SAVE_IMG_CARD_GAP = 14;
+const SAVE_IMG_SCALE = 2;
+
+function wrapCanvasLine(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return [text];
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  const pushChunked = (word) => {
+    let chunk = '';
+    for (const ch of word) {
+      const test = chunk + ch;
+      if (chunk && ctx.measureText(test).width > maxWidth) {
+        lines.push(chunk);
+        chunk = ch;
+      } else {
+        chunk = test;
+      }
+    }
+    return chunk;
+  };
+  words.forEach((word) => {
+    const test = current ? current + ' ' + word : word;
+    if (ctx.measureText(test).width <= maxWidth) {
+      current = test;
+      return;
+    }
+    if (current) lines.push(current);
+    if (ctx.measureText(word).width > maxWidth) {
+      current = pushChunked(word);
+    } else {
+      current = word;
+    }
+  });
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [''];
+}
+
+function saveAllAsFile() {
+  const mainAreas = Array.from(document.querySelectorAll('#resultsWrap .result-text-main'));
+  const productAreas = Array.from(document.querySelectorAll('#resultsWrap .result-text[data-product-id]'));
+  if (mainAreas.length === 0 && productAreas.length === 0) {
     showToast('저장할 내용이 없습니다');
     return;
   }
-  if (typeof html2canvas === 'undefined') {
-    showToast('이미지 저장 기능을 불러오지 못했어요. 인터넷 연결을 확인해주세요');
-    return;
-  }
-  showToast('이미지로 저장 중...');
-  // Hide the per-card action/tag button rows for the capture only (see the
-  // #resultsWrap.capturing CSS rule), then restore them right after.
-  wrap.classList.add('capturing');
-  try {
-    const canvas = await html2canvas(wrap, {
-      backgroundColor: '#ffffff',
-      scale: 2,
-      useCORS: true
+
+  const blocks = [];
+  mainAreas.forEach((ta) => {
+    const card = ta.closest('.result-card');
+    blocks.push({
+      lines: ta.value.split('\n'),
+      mismatch: !!(card && card.classList.contains('mismatch'))
     });
-    wrap.classList.remove('capturing');
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        showToast('이미지 생성에 실패했어요');
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const fname = `토트결과_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.png`;
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fname;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      showToast('이미지로 저장했어요');
-    }, 'image/png');
-  } catch (err) {
-    wrap.classList.remove('capturing');
-    showToast('이미지 저장 중 오류가 발생했어요');
-  }
+  });
+  productAreas.forEach((ta) => {
+    blocks.push({
+      lines: ['⚠ 매칭 안된 상품정보', ...ta.value.split('\n')],
+      mismatch: true
+    });
+  });
+
+  const innerWidth = SAVE_IMG_WIDTH - (SAVE_IMG_OUTER_PAD * 2) - (SAVE_IMG_CARD_PAD * 2) - (SAVE_IMG_INNER_PAD * 2);
+
+  // Pass 1: measure with a throwaway canvas/context to word-wrap every
+  // block's lines and compute the total image height up front (a canvas's
+  // size can't grow after it's created).
+  const measureCanvas = document.createElement('canvas');
+  const mctx = measureCanvas.getContext('2d');
+  mctx.font = `${SAVE_IMG_FONT_SIZE}px ${SAVE_IMG_FONT_FAMILY}`;
+  let totalHeight = SAVE_IMG_OUTER_PAD;
+  const wrapped = blocks.map((b) => {
+    const allLines = [];
+    b.lines.forEach((line) => {
+      wrapCanvasLine(mctx, line, innerWidth).forEach((wl) => allLines.push(wl));
+    });
+    const cardHeight = (SAVE_IMG_CARD_PAD * 2) + (SAVE_IMG_INNER_PAD * 2) + (allLines.length * SAVE_IMG_LINE_HEIGHT);
+    totalHeight += cardHeight + SAVE_IMG_CARD_GAP;
+    return { lines: allLines, mismatch: b.mismatch, height: cardHeight };
+  });
+  totalHeight += SAVE_IMG_OUTER_PAD - SAVE_IMG_CARD_GAP;
+
+  // Pass 2: draw everything onto the real, correctly-sized canvas.
+  const canvas = document.createElement('canvas');
+  canvas.width = SAVE_IMG_WIDTH * SAVE_IMG_SCALE;
+  canvas.height = totalHeight * SAVE_IMG_SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SAVE_IMG_SCALE, SAVE_IMG_SCALE);
+  ctx.fillStyle = '#f3f4f6';
+  ctx.fillRect(0, 0, SAVE_IMG_WIDTH, totalHeight);
+  ctx.font = `${SAVE_IMG_FONT_SIZE}px ${SAVE_IMG_FONT_FAMILY}`;
+  ctx.textBaseline = 'top';
+
+  let y = SAVE_IMG_OUTER_PAD;
+  wrapped.forEach((block) => {
+    const cardX = SAVE_IMG_OUTER_PAD;
+    const cardW = SAVE_IMG_WIDTH - (SAVE_IMG_OUTER_PAD * 2);
+    drawRoundedRect(ctx, cardX, y, cardW, block.height, 12);
+    ctx.fillStyle = block.mismatch ? '#fffbeb' : '#f9fafb';
+    ctx.fill();
+    ctx.strokeStyle = block.mismatch ? '#fbbf24' : '#e5e7eb';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const innerX = cardX + SAVE_IMG_CARD_PAD;
+    const innerY = y + SAVE_IMG_CARD_PAD;
+    const innerW = cardW - (SAVE_IMG_CARD_PAD * 2);
+    const innerH = block.height - (SAVE_IMG_CARD_PAD * 2);
+    drawRoundedRect(ctx, innerX, innerY, innerW, innerH, 8);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.stroke();
+
+    ctx.fillStyle = '#111827';
+    let ly = innerY + SAVE_IMG_INNER_PAD;
+    block.lines.forEach((line, idx) => {
+      ctx.font = idx === 0
+        ? `600 ${SAVE_IMG_FONT_SIZE + 1}px ${SAVE_IMG_FONT_FAMILY}`
+        : `${SAVE_IMG_FONT_SIZE}px ${SAVE_IMG_FONT_FAMILY}`;
+      ctx.fillText(line, innerX + SAVE_IMG_INNER_PAD, ly);
+      ly += SAVE_IMG_LINE_HEIGHT;
+    });
+
+    y += block.height + SAVE_IMG_CARD_GAP;
+  });
+
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      showToast('이미지 생성에 실패했어요');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const fname = `토트결과_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.png`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast('이미지로 저장했어요');
+  }, 'image/png');
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function copyText(text, btnEl) {

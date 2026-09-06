@@ -595,7 +595,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-20';
+const APP_VERSION = '2026-09-05-21';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1573,6 +1573,7 @@ function buildCopyText(rawValue) {
 // entries here to add more fixed-barcode buttons, 2 per row.
 const FIXED_BARCODES = [
   { label: 'PRB0', value: '145-PRB0-1-2' },
+  { label: '가상토트', value: '145-1CT0-1-1' },
   { label: '냉장(토재)', value: '145-RCRT9-1-738' },
   { label: '상온(토재)', value: '145-RCRT9-2-2' },
   { label: '냉동(토재)', value: '145-RCRT9-3-240' }

@@ -377,6 +377,10 @@
     color: var(--danger);
     font-weight: 600;
   }
+  .info-tag {
+    color: var(--blue);
+    font-weight: 600;
+  }
   .empty-msg {
     font-size: 13px;
     color: var(--muted);
@@ -588,7 +592,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-13';
+const APP_VERSION = '2026-09-05-14';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1737,8 +1741,11 @@ function renderResults() {
   const wrap = document.getElementById('resultsWrap');
   wrap.innerHTML = '';
 
-  if (listRows.length === 0) {
-    wrap.innerHTML = '<p class="empty-msg">리스트 사진을 인식하면 여기에 결과가 표시됩니다.</p>';
+  // 리스트 사진 없이 상품정보 사진만 올린 경우에도 인식된 상품정보는 보여줘야
+  // 하므로, listRows가 비어 있어도 products가 하나라도 있으면 계속 진행한다.
+  // 정말 아무 것도 인식된 게 없을 때만 안내 문구를 보여준다.
+  if (listRows.length === 0 && products.length === 0) {
+    wrap.innerHTML = '<p class="empty-msg">리스트 또는 상품정보 사진을 인식하면 여기에 결과가 표시됩니다.</p>';
     return;
   }
 
@@ -1785,14 +1792,20 @@ function renderResults() {
   }
 
   if (visibleUnmatched.length > 0) {
+    // 리스트 사진이 아예 없을 때는 "매칭 안 됨"이 아니라 그냥 아직 리스트와
+    // 비교해볼 대상이 없는 것뿐이므로, 경고(⚠) 톤 대신 안내 톤으로 구분해서
+    // 보여준다 — 리스트 사진을 나중에 올리면 이 상품정보도 자동으로 매칭된다.
+    const hasList = listRows.length > 0;
     const warnDiv = document.createElement('div');
-    warnDiv.className = 'result-card mismatch';
+    warnDiv.className = hasList ? 'result-card mismatch' : 'result-card';
 
     const label = document.createElement('p');
     label.style.margin = '0 0 8px 0';
     label.style.fontSize = '12.5px';
-    label.className = 'fail-tag';
-    label.textContent = '⚠ 리스트의 토트와 매칭되지 않은 상품정보';
+    label.className = hasList ? 'fail-tag' : 'info-tag';
+    label.textContent = hasList
+      ? '⚠ 리스트의 토트와 매칭되지 않은 상품정보'
+      : '📦 상품정보 (리스트 사진을 올리면 자동으로 매칭돼요)';
     warnDiv.appendChild(label);
 
     // Several leftover products that share the same (unmatched) tote —

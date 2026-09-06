@@ -416,7 +416,10 @@
     background: rgba(0,0,0,0.45);
     display: none;
     align-items: flex-end;
-    z-index: 50;
+    /* Above the floating quick-barcode button (z-index 60) so an open
+       modal's dim backdrop fully covers it instead of the FAB visually
+       poking through and overlapping a modal's own buttons (e.g. 적용). */
+    z-index: 65;
   }
   .modal-overlay.show { display: flex; }
   .modal {
@@ -601,7 +604,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-22';
+const APP_VERSION = '2026-09-05-23';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 

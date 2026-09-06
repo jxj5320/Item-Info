@@ -595,7 +595,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-18';
+const APP_VERSION = '2026-09-05-19';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1785,16 +1785,18 @@ function renderResults() {
     ta.addEventListener('input', () => autosizeTa(ta));
 
     div.appendChild(ta);
-    div.appendChild(buildActionRow(ta));
-    div.appendChild(buildTagRow(ta));
 
-    // Always-visible barcode preview (토트 위, 스큐 아래로 쌓아서) so the
-    // barcode is right there to scan without tapping 토트바코드/스큐바코드
-    // first — those buttons still open the bigger modal version too.
+    // Always-visible barcode preview (토트 위, 스큐 아래로 쌓아서), right
+    // under the text and above the buttons, so the barcode is right there
+    // to scan without tapping 토트바코드/스큐바코드 first — those buttons
+    // still open the bigger modal version too.
     const barcodesDiv = document.createElement('div');
     barcodesDiv.className = 'inline-barcodes';
     renderInlineBarcodes(barcodesDiv, [r.tote, ...r.items.map(it => it.sku)]);
     div.appendChild(barcodesDiv);
+
+    div.appendChild(buildActionRow(ta));
+    div.appendChild(buildTagRow(ta));
 
     wrap.appendChild(div);
   });
@@ -1849,17 +1851,18 @@ function renderResults() {
       ta.addEventListener('input', () => autosizeTa(ta));
 
       warnDiv.appendChild(ta);
+
+      const barcodesDiv = document.createElement('div');
+      barcodesDiv.className = 'inline-barcodes';
+      renderInlineBarcodes(barcodesDiv, [g.tote, ...g.items.map(p => p.sku)]);
+      warnDiv.appendChild(barcodesDiv);
+
       warnDiv.appendChild(buildActionRow(ta, () => {
         const ids = new Set(g.items.map(p => p.id));
         products = products.filter(pp => !ids.has(pp.id));
         renderResults();
         showToast('삭제했어요');
       }));
-
-      const barcodesDiv = document.createElement('div');
-      barcodesDiv.className = 'inline-barcodes';
-      renderInlineBarcodes(barcodesDiv, [g.tote, ...g.items.map(p => p.sku)]);
-      warnDiv.appendChild(barcodesDiv);
     });
 
     wrap.appendChild(warnDiv);

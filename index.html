@@ -290,6 +290,9 @@
   .result-card .tag-row:last-child {
     margin-bottom: 0;
   }
+  .inline-barcodes:empty {
+    display: none;
+  }
   .result-card .tag-row button {
     flex: 1;
     min-width: 84px;
@@ -592,7 +595,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-17';
+const APP_VERSION = '2026-09-05-18';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1784,6 +1787,15 @@ function renderResults() {
     div.appendChild(ta);
     div.appendChild(buildActionRow(ta));
     div.appendChild(buildTagRow(ta));
+
+    // Always-visible barcode preview (토트 위, 스큐 아래로 쌓아서) so the
+    // barcode is right there to scan without tapping 토트바코드/스큐바코드
+    // first — those buttons still open the bigger modal version too.
+    const barcodesDiv = document.createElement('div');
+    barcodesDiv.className = 'inline-barcodes';
+    renderInlineBarcodes(barcodesDiv, [r.tote, ...r.items.map(it => it.sku)]);
+    div.appendChild(barcodesDiv);
+
     wrap.appendChild(div);
   });
 
@@ -1843,6 +1855,11 @@ function renderResults() {
         renderResults();
         showToast('삭제했어요');
       }));
+
+      const barcodesDiv = document.createElement('div');
+      barcodesDiv.className = 'inline-barcodes';
+      renderInlineBarcodes(barcodesDiv, [g.tote, ...g.items.map(p => p.sku)]);
+      warnDiv.appendChild(barcodesDiv);
     });
 
     wrap.appendChild(warnDiv);
@@ -1856,6 +1873,54 @@ function renderResults() {
 // ---------- barcode modal ----------
 let currentBarcodeLabel = '';
 let currentBarcodeValue = '';
+
+// Builds one self-contained "barcode card" DOM node (canvas + value label)
+// for a single value — shared by the barcode modal (openBarcodeModal) and
+// the always-visible inline barcode preview drawn directly inside each
+// result/product card (renderInlineBarcodes). Returns null if the value
+// can't be rendered (missing library, or a value JsBarcode itself rejects),
+// so callers can just skip it instead of duplicating error-handling.
+function createBarcodeItemNode(value, opts) {
+  if (typeof JsBarcode === 'undefined') return null;
+  opts = opts || {};
+  // Longer codes need a narrower module width, or the rendered canvas ends
+  // up wider than its container and gets scaled down a lot by the CSS
+  // max-width:100% safety net below — better to shrink the module width up
+  // front so the barcode stays close to its natural size (crisper bars) for
+  // scanning, and only relies on the CSS scaling as a last-resort fallback.
+  let barWidth = opts.baseWidth || 2;
+  if (value.length > 20) barWidth *= 0.55;
+  else if (value.length > 16) barWidth *= 0.7;
+  else if (value.length > 13) barWidth *= 0.85;
+
+  const card = document.createElement('div');
+  card.className = 'barcode-item';
+  card.style.cssText = `background:white;border:1px solid var(--border);border-radius:10px;padding:${opts.padding || '14px 8px'};text-align:center;margin-bottom:${opts.marginBottom != null ? opts.marginBottom : 10}px;`;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'barcode-item-canvas';
+  canvas.style.cssText = 'max-width:100%;height:auto;display:block;margin:0 auto;';
+  card.appendChild(canvas);
+
+  try {
+    JsBarcode(canvas, value, {
+      format: 'CODE128',
+      displayValue: true,
+      margin: opts.margin != null ? opts.margin : 10,
+      height: opts.height || 80,
+      width: barWidth,
+      fontSize: opts.fontSize || 14
+    });
+  } catch (err) {
+    return null;
+  }
+
+  const note = document.createElement('p');
+  note.className = 'modal-note barcode-item-value';
+  note.style.cssText = 'text-align:center;word-break:break-all;margin-top:-4px;';
+  note.textContent = value;
+  card.appendChild(note);
+  return card;
+}
 
 // `values` can be a single string (토트바코드, the 4 고정 barcode buttons)
 // or an array of strings (스큐바코드 on a multi-product tote card) — either
@@ -1879,49 +1944,32 @@ function openBarcodeModal(label, values) {
   wrap.innerHTML = '';
   let madeAny = false;
   list.forEach((value) => {
-    // Longer codes need a narrower module width, or the rendered canvas
-    // ends up wider than the modal and gets scaled down a lot by the CSS
-    // max-width:100% safety net below — better to shrink the module width
-    // up front so the barcode stays close to its natural size (crisper
-    // bars) for scanning, and only relies on the CSS scaling as a
-    // last-resort fallback.
-    let barWidth = 2;
-    if (value.length > 20) barWidth = 1.1;
-    else if (value.length > 16) barWidth = 1.4;
-    else if (value.length > 13) barWidth = 1.7;
-
-    const card = document.createElement('div');
-    card.className = 'barcode-item';
-    card.style.cssText = 'background:white;border:1px solid var(--border);border-radius:10px;padding:14px 8px;text-align:center;margin-bottom:10px;';
-    const canvas = document.createElement('canvas');
-    canvas.className = 'barcode-item-canvas';
-    canvas.style.cssText = 'max-width:100%;height:auto;display:block;margin:0 auto;';
-    card.appendChild(canvas);
-
-    try {
-      JsBarcode(canvas, value, {
-        format: 'CODE128',
-        displayValue: true,
-        margin: 10,
-        height: 80,
-        width: barWidth,
-        fontSize: 14
-      });
-    } catch (err) {
-      showToast('바코드를 만들 수 없는 값이에요: ' + err.message);
+    const node = createBarcodeItemNode(value);
+    if (!node) {
+      showToast('바코드를 만들 수 없는 값이에요: ' + value);
       return;
     }
-    wrap.appendChild(card);
-
-    const note = document.createElement('p');
-    note.className = 'modal-note barcode-item-value';
-    note.style.cssText = 'text-align:center;word-break:break-all;margin-top:-4px;';
-    note.textContent = value;
-    wrap.appendChild(note);
+    wrap.appendChild(node);
     madeAny = true;
   });
   if (!madeAny) return;
   document.getElementById('barcodeOverlay').classList.add('show');
+}
+
+// Always-visible, compact barcode preview drawn directly inside a result/
+// product card (below its buttons) — no tap needed to see it, unlike the
+// modal. `values` is [토트 값, ...스큐 값들]; 토트 first, 스큐(들) stacked
+// below it, same top-to-bottom order the modal already uses for multiple
+// SKUs. Silently renders nothing for values JsBarcode can't handle (or
+// while the library hasn't loaded yet) rather than toasting on every card.
+function renderInlineBarcodes(container, values) {
+  container.innerHTML = '';
+  values.filter(v => v && v !== 'X').forEach((value) => {
+    const node = createBarcodeItemNode(value, {
+      height: 50, fontSize: 11, margin: 6, padding: '8px 6px', marginBottom: 8
+    });
+    if (node) container.appendChild(node);
+  });
 }
 
 function closeBarcodeModal() {

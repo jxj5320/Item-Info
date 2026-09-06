@@ -495,7 +495,7 @@
   </div>
 
   <div class="card">
-    <h2><span class="badge">2</span> 토트 리스트 사진</h2>
+    <h2><span class="badge">2</span> 리스트</h2>
     <p class="help">창고관리 화면의 "테이블 뷰" 목록 사진 1장을 올리면 각 행의 <b>토트 바코드</b>와 <b>보내는 센터</b>를 인식합니다.</p>
     <label for="listInput" class="file-btn">📷 리스트 사진 선택</label>
     <input type="file" id="listInput" accept="image/*" class="file-input-hidden">
@@ -506,7 +506,7 @@
   </div>
 
   <div class="card">
-    <h2><span class="badge">3</span> 상품정보 사진 (여러 장 가능)</h2>
+    <h2><span class="badge">3</span> 토트 & 로케이션 정보 (여러 장 가능)</h2>
     <p class="help">토트를 스캔하면 뜨는 상품정보 화면 사진을 필요한 만큼 올리면 각 사진에서 <b>토트(위치)</b>, <b>스큐</b>, <b>품명</b>을 인식합니다. (LPN·무게는 자동으로 무시)</p>
     <label for="productInput" class="file-btn">📷 상품정보 사진 선택</label>
     <input type="file" id="productInput" accept="image/*" multiple class="file-input-hidden">
@@ -592,7 +592,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-14';
+const APP_VERSION = '2026-09-05-16';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1437,9 +1437,10 @@ function buildBlockText(r) {
   // Repeats one 스큐/품명 pair per product found on this tote — usually
   // just one, but a multi-product 토트(위치) photo produces several, and
   // they all belong in this same card rather than spawning duplicate-tote
-  // cards elsewhere.
-  r.items.forEach((it) => {
-    text += `\n스큐: ${it.sku}\n품명: ${it.name}`;
+  // cards elsewhere. A blank line between pairs (but not before the first)
+  // makes it visually obvious where one product ends and the next begins.
+  r.items.forEach((it, idx) => {
+    text += (idx > 0 ? '\n\n' : '\n') + `스큐: ${it.sku}\n품명: ${it.name}`;
   });
   if (r.qty && r.qty !== 'X') {
     text += `\n수량: ${r.qty}`;
@@ -1815,8 +1816,11 @@ function renderResults() {
     // card per product.
     groupUnmatchedProducts(visibleUnmatched).forEach((g) => {
       let text = g.tote;
-      g.items.forEach((p) => {
-        text += `\n스큐: ${p.sku}\n품명: ${p.name}`;
+      // Same blank-line-between-pairs treatment as buildBlockText, so a
+      // multi-product tote reads the same way whether it ended up matched
+      // or not.
+      g.items.forEach((p, idx) => {
+        text += (idx > 0 ? '\n\n' : '\n') + `스큐: ${p.sku}\n품명: ${p.name}`;
       });
 
       const ta = document.createElement('textarea');

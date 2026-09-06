@@ -564,6 +564,12 @@
   <div class="modal">
     <h3 id="barcodeModalTitle">바코드</h3>
     <div id="barcodeItemsWrap"></div>
+    <div id="barcodeEditRow" style="display:none;align-items:center;gap:8px;margin:-4px 0 12px 0;">
+      <span style="font-size:13px;color:var(--muted);white-space:nowrap;">끝번호:</span>
+      <input id="barcodeEditInput" type="text" inputmode="numeric" pattern="[0-9]*"
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:15px;">
+      <button id="barcodeEditApplyBtn" class="btn-secondary" style="white-space:nowrap;">적용</button>
+    </div>
     <p class="modal-note" style="text-align:center;">바코드 바깥 아무 곳이나 누르면 닫혀요</p>
   </div>
 </div>
@@ -595,7 +601,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-21';
+const APP_VERSION = '2026-09-05-22';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1578,6 +1584,49 @@ const FIXED_BARCODES = [
   { label: '상온(토재)', value: '145-RCRT9-2-2' },
   { label: '냉동(토재)', value: '145-RCRT9-3-240' }
 ];
+// The 3 온도(토재) barcodes share the same "145-RCRT9-<n>-" prefix and only
+// their trailing slot number (738/2/240) actually changes day to day, so
+// those 3 labels get an inline "끝번호" edit control in the barcode modal
+// instead of needing a code change every time the number changes. The
+// edited suffix is remembered in localStorage per label.
+const TORE_SUFFIX_KEYS = ['냉장(토재)', '상온(토재)', '냉동(토재)'];
+const TORE_SUFFIX_STORAGE_KEY = 'toteToreSuffixes';
+let toreSuffixOverrides = {};
+
+function loadToreSuffixOverrides() {
+  try {
+    const raw = localStorage.getItem(TORE_SUFFIX_STORAGE_KEY);
+    toreSuffixOverrides = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    toreSuffixOverrides = {};
+  }
+}
+
+function saveToreSuffixOverride(label, suffix) {
+  toreSuffixOverrides[label] = suffix;
+  try {
+    localStorage.setItem(TORE_SUFFIX_STORAGE_KEY, JSON.stringify(toreSuffixOverrides));
+  } catch (e) {}
+}
+
+// Splits "145-RCRT9-1-738" into prefix "145-RCRT9-1-" (everything up to and
+// including the LAST "-") and suffix "738" (everything after it).
+function splitTrailingSegment(value) {
+  const idx = value.lastIndexOf('-');
+  if (idx === -1) return { prefix: '', suffix: value };
+  return { prefix: value.slice(0, idx + 1), suffix: value.slice(idx + 1) };
+}
+
+// The value actually used for a fixed-barcode entry: its saved override
+// suffix (if any) applied on top of its default "145-RCRT9-n-" prefix, or
+// just its plain default value for entries that aren't suffix-editable.
+function fixedBarcodeValue(entry) {
+  if (!TORE_SUFFIX_KEYS.includes(entry.label)) return entry.value;
+  const override = toreSuffixOverrides[entry.label];
+  if (!override) return entry.value;
+  return splitTrailingSegment(entry.value).prefix + override;
+}
+
 function renderFixedBarcodeButtons() {
   fillFixedBarcodeButtons(document.getElementById('fixedBarcodeGrid'));
   fillFixedBarcodeButtons(document.getElementById('fabPanel'), () => closeFixedBarcodeFab());
@@ -1587,16 +1636,49 @@ function renderFixedBarcodeButtons() {
 // instead of duplicating the button markup/handlers in two places.
 function fillFixedBarcodeButtons(container, afterClick) {
   container.innerHTML = '';
-  FIXED_BARCODES.forEach(({ label, value }) => {
+  FIXED_BARCODES.forEach((entry) => {
     const btn = document.createElement('button');
     btn.className = 'btn-secondary';
-    btn.textContent = label;
+    btn.textContent = entry.label;
     btn.addEventListener('click', () => {
-      openBarcodeModal(label, value);
+      openFixedBarcode(entry);
       if (afterClick) afterClick();
     });
     container.appendChild(btn);
   });
+}
+
+// Opens the barcode modal for a FIXED_BARCODES entry, using its current
+// (possibly overridden) value, and shows the 끝번호 edit control underneath
+// when this label allows it.
+function openFixedBarcode(entry) {
+  openBarcodeModal(entry.label, fixedBarcodeValue(entry));
+  if (TORE_SUFFIX_KEYS.includes(entry.label)) {
+    showBarcodeEditRow(entry);
+  }
+}
+
+function showBarcodeEditRow(entry) {
+  const row = document.getElementById('barcodeEditRow');
+  const input = document.getElementById('barcodeEditInput');
+  input.value = splitTrailingSegment(fixedBarcodeValue(entry)).suffix;
+  row.style.display = 'flex';
+  document.getElementById('barcodeEditApplyBtn').onclick = () => {
+    const digitsOnly = input.value.replace(/\D/g, '');
+    if (!digitsOnly) {
+      showToast('끝번호는 숫자로 입력해주세요');
+      return;
+    }
+    saveToreSuffixOverride(entry.label, digitsOnly);
+    renderFixedBarcodeButtons();
+    openBarcodeModal(entry.label, fixedBarcodeValue(entry));
+    showBarcodeEditRow(entry);
+    showToast('저장했어요: ' + fixedBarcodeValue(entry));
+  };
+}
+
+function hideBarcodeEditRow() {
+  document.getElementById('barcodeEditRow').style.display = 'none';
 }
 
 // ---------- floating quick-access button ----------
@@ -1951,6 +2033,11 @@ function openBarcodeModal(label, values) {
     showToast('바코드 라이브러리를 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
     return;
   }
+  // Only openFixedBarcode() re-shows this for the 3 온도(토재) labels right
+  // after calling here — every other caller (토트바코드/스큐바코드 on a
+  // result card, or re-opening after an edit) should start from hidden so
+  // it never lingers on an unrelated barcode.
+  hideBarcodeEditRow();
   currentBarcodeLabel = label;
   currentBarcodeValue = list;
   document.getElementById('barcodeModalTitle').textContent = label;
@@ -1988,6 +2075,7 @@ function renderInlineBarcodes(container, values) {
 
 function closeBarcodeModal() {
   document.getElementById('barcodeOverlay').classList.remove('show');
+  hideBarcodeEditRow();
 }
 
 // Tapping anywhere on the dimmed backdrop closes the modal; tapping inside
@@ -2235,6 +2323,7 @@ function escapeAttr(s) {
 
 // ---------- init ----------
 document.getElementById('buildTag').textContent = 'v' + APP_VERSION;
+loadToreSuffixOverrides();
 renderFixedBarcodeButtons();
 loadPersistedState();
 if (listRows.length > 0) {

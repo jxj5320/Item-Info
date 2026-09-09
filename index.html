@@ -604,7 +604,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-05-23';
+const APP_VERSION = '2026-09-09-24';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -2001,9 +2001,16 @@ function createBarcodeItemNode(value, opts) {
   card.appendChild(canvas);
 
   try {
+    // displayValue is OFF on purpose: JsBarcode would otherwise bake the
+    // value text directly into the canvas image below the bars, which then
+    // duplicated the separate <p class="barcode-item-value"> label right
+    // under it -- the same code showing twice looked messy. The bars
+    // themselves (the actual scannable data) are untouched either way;
+    // this only removes JsBarcode's own redundant text render, leaving our
+    // one label as the single visible copy of the value.
     JsBarcode(canvas, value, {
       format: 'CODE128',
-      displayValue: true,
+      displayValue: false,
       margin: opts.margin != null ? opts.margin : 10,
       height: opts.height || 80,
       width: barWidth,

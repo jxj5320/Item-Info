@@ -219,10 +219,18 @@
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 10px;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    transition: box-shadow 0.5s ease;
   }
   .result-card.mismatch {
     border-color: #fbbf24;
     background: #fffbeb;
+  }
+  /* Briefly rings the card that a 토트/스큐 edit just landed in, since
+     re-matching after an edit can move where that card ends up (or just
+     rebuild the whole list), and every card otherwise looks the same. */
+  .result-card.just-edited {
+    box-shadow: 0 0 0 3px var(--blue);
   }
   .result-card .result-text {
     display: block;
@@ -604,7 +612,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-09-24';
+const APP_VERSION = '2026-09-09-25';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1502,6 +1510,7 @@ function buildBlockText(r) {
 function handleToteEdit(ta, kind) {
   const newTote = firstLine(ta.value);
   if (!newTote) return;
+  let productIds = [];
   if (kind === 'row') {
     const row = listRows.find(r => String(r.id) === ta.dataset.rowId);
     if (!row || normStrict(newTote) === normStrict(row.tote)) return;
@@ -1513,11 +1522,11 @@ function handleToteEdit(ta, kind) {
     // call sites/tests keep matching. Editing the tote line here re-tags
     // every product in the group, not just the first, so the whole group
     // moves together when it re-matches a list row.
-    const ids = (ta.dataset.productIds || ta.dataset.productId || '').split(',').filter(Boolean);
-    if (ids.length === 0) return;
-    const first = products.find(p => String(p.id) === ids[0]);
+    productIds = (ta.dataset.productIds || ta.dataset.productId || '').split(',').filter(Boolean);
+    if (productIds.length === 0) return;
+    const first = products.find(p => String(p.id) === productIds[0]);
     if (!first || normStrict(newTote) === normStrict(first.tote)) return;
-    ids.forEach((id) => {
+    productIds.forEach((id) => {
       const prod = products.find(p => String(p.id) === id);
       if (prod) prod.tote = newTote;
     });
@@ -1526,6 +1535,36 @@ function handleToteEdit(ta, kind) {
   }
   renderResults();
   showToast('수정한 토트 번호로 다시 매칭했어요');
+  // Re-matching can move where this edit ends up -- a matched row-card
+  // never changes position, but an edited unmatched-product card can jump
+  // straight into an existing matched card elsewhere in the list (or stay
+  // put if it still doesn't match anything). Every card looks alike, so
+  // scroll to wherever it landed and ring it briefly instead of leaving the
+  // person to scroll through the whole list hunting for it.
+  focusEditedCard(newTote, productIds);
+}
+
+// Finds the card the just-applied edit ended up in and scrolls it into
+// view with a brief highlight ring. Tries, in order: (1) the still-
+// unmatched product card (edit didn't find a match), (2) the matched
+// row-card whose 토트 now equals what was typed (edit found/kept a match).
+function focusEditedCard(newTote, productIds) {
+  requestAnimationFrame(() => {
+    let target = null;
+    if (productIds.length > 0) {
+      target = document.querySelector(`textarea[data-product-id="${productIds[0]}"]`) ||
+        document.querySelector(`textarea[data-product-ids*="${productIds[0]}"]`);
+    }
+    if (!target) {
+      target = Array.from(document.querySelectorAll('textarea[data-row-id]'))
+        .find(t => sameCode(firstLine(t.value), newTote));
+    }
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const card = target.closest('.result-card') || target;
+    card.classList.add('just-edited');
+    setTimeout(() => card.classList.remove('just-edited'), 1800);
+  });
 }
 
 // ---------- render results ----------

@@ -232,6 +232,25 @@
   .result-card.just-edited {
     box-shadow: 0 0 0 3px var(--blue);
   }
+  /* CT정렬: same-CT groups (2+ totes sharing one CT바코드) get an
+     alternating pastel tint so it's obvious at a glance which cards can be
+     picked up together, even though most are matched (white) cards. Kept
+     light enough that dark text/borders still read fine on top. */
+  .result-card.ct-group-0 { background: #eef2ff; }
+  .result-card.ct-group-1 { background: #f0fdfa; }
+  .result-card.ct-group-2 { background: #fdf4ff; }
+  .result-card.ct-group-3 { background: #f0f9ff; }
+  .result-card.ct-group-4 { background: #f7fee7; }
+  .ct-group-badge {
+    display: inline-block;
+    margin: 0 0 8px 0;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: #4338ca;
+    color: #fff;
+  }
   .result-card .result-text {
     display: block;
     width: 100%;
@@ -612,7 +631,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-09-25';
+const APP_VERSION = '2026-09-09-26';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1376,7 +1395,12 @@ function computeMatches() {
       items,
       sku: items[0].sku,
       name: items[0].name,
-      matched: matches.length > 0
+      matched: matches.length > 0,
+      // CT정렬로 묶은 결과라면 렌더링에서 배경 배지/색으로 보여주기 위해
+      // 그대로 실어 나른다 (sortByCt()가 listRows에 붙여놓은 값).
+      ctGroupIndex: row.ctGroupIndex,
+      ctGroupTop: row.ctGroupTop,
+      ctGroupSize: row.ctGroupSize
     };
   });
 
@@ -1433,31 +1457,72 @@ function groupUnmatchedProducts(prods) {
 // order, since computeMatches() maps over listRows in order) and re-renders.
 // Rows with no usable value for the chosen sort key sink to the bottom
 // either way, instead of landing arbitrarily among the sortable ones.
+function qtyOfRow(row) {
+  const n = parseInt(row.qty, 10);
+  return isNaN(n) ? -Infinity : n;
+}
+
+// Clears any CT-grouping display markers left over from a previous
+// CT정렬 pass, so switching to plain 수량정렬 also turns off the group
+// banding/배지 instead of leaving stale groups on screen.
+function clearCtGroupMarkers() {
+  listRows.forEach((row) => {
+    row.ctGroupIndex = undefined;
+    row.ctGroupTop = false;
+    row.ctGroupSize = undefined;
+  });
+}
+
 function sortByQty() {
   if (listRows.length === 0) return;
-  listRows.sort((a, b) => {
-    const qa = parseInt(a.qty, 10);
-    const qb = parseInt(b.qty, 10);
-    const va = isNaN(qa) ? -Infinity : qa;
-    const vb = isNaN(qb) ? -Infinity : qb;
-    return vb - va; // 수량 많은 순
-  });
+  clearCtGroupMarkers();
+  listRows.sort((a, b) => qtyOfRow(b) - qtyOfRow(a)); // 수량 많은 순
   renderResults();
   showToast('수량 많은 순으로 정렬했어요');
 }
 
+// CT(컨테이너) 정렬: 같은 CT바코드를 쓰는 토트들은 실제로 같은 자리에 함께
+// 있으니, 수량이 적어도 큰 수량 상품과 같은 CT로 묶여 있으면 한 번에 같이
+// 찾아낼 수 있어야 한다는 요청으로 만들어짐. 그래서 단순히 CT값 알파벳
+// 순이 아니라: ① 같은 CT를 쓰는 토트들을 한 묶음으로 모으고, ② 묶음의
+// 우선순위는 그 묶음 안에서 가장 큰 수량(=실제로 찾아 나서야 할 대표
+// 상품) 기준으로 정하고, ③ 묶음 안에서는 다시 수량 많은 순으로 정렬한다.
+// CT가 없거나(X/빈값) 다른 어떤 토트와도 CT가 겹치지 않는 토트는 묶을 게
+// 없으니 각자 "혼자만의 묶음"으로 취급해 수량 순으로 뒤에 배치한다.
 function sortByCt() {
   if (listRows.length === 0) return;
-  listRows.sort((a, b) => {
-    const ca = (a.ct && a.ct !== 'X') ? a.ct.trim() : '';
-    const cb = (b.ct && b.ct !== 'X') ? b.ct.trim() : '';
-    if (!ca && !cb) return 0;
-    if (!ca) return 1;
-    if (!cb) return -1;
-    return ca.localeCompare(cb, 'ko');
+
+  const groupMap = new Map();
+  listRows.forEach((row) => {
+    const key = (row.ct && row.ct !== 'X') ? row.ct.trim() : ('__single_' + row.id);
+    if (!groupMap.has(key)) groupMap.set(key, []);
+    groupMap.get(key).push(row);
   });
+
+  const groups = Array.from(groupMap.values());
+  // Within each group: biggest quantity first, since that's the item worth
+  // actively going to find -- everything else in the group just rides
+  // along once you're already at that CT.
+  groups.forEach((rows) => rows.sort((a, b) => qtyOfRow(b) - qtyOfRow(a)));
+  // Between groups: the group whose biggest member has the biggest
+  // quantity goes first (rows[0] is that member after the sort above).
+  groups.sort((a, b) => qtyOfRow(b[0]) - qtyOfRow(a[0]));
+
+  listRows = [];
+  let realGroupCount = 0;
+  groups.forEach((rows) => {
+    const isRealGroup = rows.length > 1;
+    const groupIdx = isRealGroup ? realGroupCount++ : -1;
+    rows.forEach((row, memberIdx) => {
+      row.ctGroupIndex = isRealGroup ? groupIdx : undefined;
+      row.ctGroupTop = isRealGroup && memberIdx === 0;
+      row.ctGroupSize = isRealGroup ? rows.length : undefined;
+      listRows.push(row);
+    });
+  });
+
   renderResults();
-  showToast('CT(컨테이너 바코드) 순으로 정렬했어요');
+  showToast('같은 CT끼리 묶고, 묶음 안에서는 수량 많은 순으로 정렬했어요');
 }
 
 // The 토트 barcode value is always the first line, written bare (no
@@ -1613,6 +1678,11 @@ function buildCopyText(rawValue) {
     return m ? m[2] : line;
   }).join('\n');
 }
+
+// Number of alternating background tints CT정렬 cycles through for
+// same-CT groups (see .ct-group-0..N-1 in the stylesheet) — must match the
+// count of CSS classes actually defined.
+const CT_GROUP_COLOR_COUNT = 5;
 
 // Fixed quick-access barcodes: these values never change card to card
 // (they're always the same location/pallet codes, not derived from any
@@ -1904,8 +1974,23 @@ function renderResults() {
 
   visibleResults.forEach((r) => {
     const div = document.createElement('div');
-    div.className = 'result-card' + (r.matched ? '' : ' mismatch');
+    let cardClass = 'result-card' + (r.matched ? '' : ' mismatch');
+    // CT정렬로 만든 묶음이면(2개 이상 같은 CT) 묶음마다 옅은 배경색을 번갈아
+    // 입혀서 한눈에 "같이 챙길 수 있는 것들"이 보이게 한다.
+    if (r.ctGroupIndex !== undefined && r.ctGroupIndex !== null) {
+      cardClass += ' ct-group-' + (r.ctGroupIndex % CT_GROUP_COLOR_COUNT);
+    }
+    div.className = cardClass;
     const text = buildBlockText(r);
+
+    // 묶음 안에서 수량이 제일 많은(= 실제로 찾아 나서야 할 대표) 카드에는
+    // 작은 배지를 붙여서, 같은 CT로 묶인 다른 카드들과 구분되게 한다.
+    if (r.ctGroupTop) {
+      const badge = document.createElement('p');
+      badge.className = 'ct-group-badge';
+      badge.textContent = `🔝 최다수량 · 이 CT에 ${r.ctGroupSize}개 묶임`;
+      div.appendChild(badge);
+    }
 
     // Editable textarea instead of read-only text: photos are no longer
     // shown as editable field boxes upstream, so this final step is where

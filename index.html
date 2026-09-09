@@ -232,8 +232,20 @@
      either it's tapped (found it) or a long safety timeout passes — a
      quick flash faded before there was time to actually scroll to it. */
   .result-card.just-edited {
-    box-shadow: 0 0 0 4px var(--blue);
-    background: #dbeafe;
+    position: relative;
+    box-shadow: 0 0 0 3px var(--danger);
+  }
+  /* A translucent red wash over the WHOLE card (not a solid color swap),
+     so it still shows through even if the card also has a CT정렬 group
+     color underneath. pointer-events:none keeps every button/textarea
+     under it fully tappable/editable. */
+  .result-card.just-edited::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(220, 38, 38, 0.16);
+    pointer-events: none;
   }
   /* CT정렬: same-CT groups (2+ totes sharing one CT바코드) get a clearly
      saturated color band (background + left accent stripe) — pale tints
@@ -635,7 +647,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-09-27';
+const APP_VERSION = '2026-09-09-28';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 

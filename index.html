@@ -226,29 +226,33 @@
     border-color: #fbbf24;
     background: #fffbeb;
   }
-  /* Briefly rings the card that a 토트/스큐 edit just landed in, since
-     re-matching after an edit can move where that card ends up (or just
-     rebuild the whole list), and every card otherwise looks the same. */
+  /* Rings the card that a 토트/스큐 edit just landed in, since re-matching
+     after an edit can move where that card ends up (or just rebuild the
+     whole list), and every card otherwise looks the same. Stays on until
+     either it's tapped (found it) or a long safety timeout passes — a
+     quick flash faded before there was time to actually scroll to it. */
   .result-card.just-edited {
-    box-shadow: 0 0 0 3px var(--blue);
+    box-shadow: 0 0 0 4px var(--blue);
+    background: #dbeafe;
   }
-  /* CT정렬: same-CT groups (2+ totes sharing one CT바코드) get an
-     alternating pastel tint so it's obvious at a glance which cards can be
-     picked up together, even though most are matched (white) cards. Kept
-     light enough that dark text/borders still read fine on top. */
-  .result-card.ct-group-0 { background: #eef2ff; }
-  .result-card.ct-group-1 { background: #f0fdfa; }
-  .result-card.ct-group-2 { background: #fdf4ff; }
-  .result-card.ct-group-3 { background: #f0f9ff; }
-  .result-card.ct-group-4 { background: #f7fee7; }
+  /* CT정렬: same-CT groups (2+ totes sharing one CT바코드) get a clearly
+     saturated color band (background + left accent stripe) — pale tints
+     didn't read as "different" against the default card color at a glance
+     on an actual phone screen, so these are picked to be obviously
+     distinct from each other and from the plain/mismatch cards. */
+  .result-card.ct-group-0 { background: #c7d2fe; border-left: 7px solid #4338ca; }
+  .result-card.ct-group-1 { background: #99f6e4; border-left: 7px solid #0f766e; }
+  .result-card.ct-group-2 { background: #f5d0fe; border-left: 7px solid #a21caf; }
+  .result-card.ct-group-3 { background: #bae6fd; border-left: 7px solid #0369a1; }
+  .result-card.ct-group-4 { background: #d9f99d; border-left: 7px solid #4d7c0f; }
   .ct-group-badge {
     display: inline-block;
     margin: 0 0 8px 0;
     padding: 3px 9px;
     border-radius: 20px;
     font-size: 11.5px;
-    font-weight: 600;
-    background: #4338ca;
+    font-weight: 700;
+    background: #1e1b4b;
     color: #fff;
   }
   .result-card .result-text {
@@ -631,7 +635,7 @@
 // re-deployed by manually re-uploading this file to GitHub Pages (no git/CI),
 // so "I uploaded it but nothing changed" is usually a stale-file mix-up
 // rather than a real bug, and this tag makes that checkable at a glance.
-const APP_VERSION = '2026-09-09-26';
+const APP_VERSION = '2026-09-09-27';
 let apiKey = localStorage.getItem('toteApiKey') || '';
 let model = localStorage.getItem('toteModel') || 'claude-haiku-4-5';
 
@@ -1628,7 +1632,16 @@ function focusEditedCard(newTote, productIds) {
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const card = target.closest('.result-card') || target;
     card.classList.add('just-edited');
-    setTimeout(() => card.classList.remove('just-edited'), 1800);
+    // A short flash faded before there was time to actually look up from
+    // the keyboard and scroll to it, so this stays on much longer — and
+    // clears the instant the card itself is tapped (that means it was
+    // found), rather than only on a timer either way.
+    const clearHighlight = () => card.classList.remove('just-edited');
+    const timer = setTimeout(clearHighlight, 10000);
+    card.addEventListener('pointerdown', () => {
+      clearTimeout(timer);
+      clearHighlight();
+    }, { once: true });
   });
 }
 
